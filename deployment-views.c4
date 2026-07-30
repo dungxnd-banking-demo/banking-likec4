@@ -48,13 +48,22 @@ views 'Deployment' {
   }
 
   // ═══════════════════════════════════════════════════
-  //  Audit Logging Pipeline
+  //  Audit Logging Pipeline — full detail
   // ═══════════════════════════════════════════════════
   deployment view deployment_audit {
     title 'Security / Audit Pipeline'
-    description 'kube-apiserver writes CIS-policy audit logs to `/var/log/kubernetes/audit/`. Vector (DaemonSet, hostPath) ships to Parseable (columnar store, SQL UI) → SeaweedFS (S3-compatible, 10Gi PVC). All on control-plane node (nodeSelector + tolerations).'
+    description '''
+Four-stage pipeline, all on the control-plane node
+(disabled by default — `audit.enabled: false` in Helm values).
 
-    include aws.vpc.master
+Data flow: kube-apiserver → Vector → Parseable → SeaweedFS
+'''
+
+    include
+      aws.vpc.master.kubeApiAudit,
+      aws.vpc.master.vector,
+      aws.vpc.master.parseable,
+      aws.vpc.master.seaweedfs
     includeAncestors: true
 
     style aws { color bank_indigo }

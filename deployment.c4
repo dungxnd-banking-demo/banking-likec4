@@ -9,6 +9,7 @@ Default VPC with a single public subnet.
 4 EC2 spot instances: 3 × t3a.medium + 1 × t3a.small.
 No NAT GW, no ELB — zero-cost networking.
 Single Security Group with two-phase ruleset (provisioning → lockdown).
+All nodes connected via Cilium eBPF networking (kube-proxy replacement).
 '''
 
       sg = ec2 'Security Group' {
@@ -29,6 +30,37 @@ kube-apiserver audit logging enabled (CIS-aligned policy) → `/var/log/kubernet
 '''
         technology 'Ubuntu 26.04'
         metadata { cpu '2 vCPU AMD EPYC'; ram '4 GiB'; disk '20 GB gp3' }
+
+        // ── Audit pipeline (runs on master, disabled by default) ──
+        vector = ec2 'Vector' {
+          title 'Vector DaemonSet'
+          description '''
+DaemonSet pinned to control-plane node (nodeSelector + tolerates taint).
+Reads kube-apiserver audit logs from hostPath (`/var/log/kubernetes/audit/*.log`).
+Parses JSON, batches 100 events, gzip-compresses, ships to Parseable over HTTP with basic auth.
+'''
+          technology 'timberio/vector'
+        }
+        parseable = ec2 'Parseable' {
+          title 'Parseable'
+          description '''
+Columnar log store with SQL query UI on :8000.
+Receives batched audit events from Vector via `/api/v1/ingest`.
+Stores Parquet data in SeaweedFS S3 backend (`s3://parseable`).
+Authenticates Vector requests with basic auth from Secret.
+'''
+          technology 'parseable/parseable'
+        }
+        seaweedfs = ec2 'SeaweedFS' {
+          title 'SeaweedFS'
+          description '''
+All-in-one StatefulSet: master + volume + filer + S3 gateway.
+S3-compatible API on :8333 (10 Gi PVC, local-path).
+Parseable stores all columnar data here as S3 objects.
+'''
+          technology 'chrislusf/seaweedfs'
+          metadata { storage '10 Gi PVC'; s3_port '8333' }
+        }
       }
 
       worker1 = ec2 'Worker Node 1' {
@@ -60,10 +92,10 @@ Service + data pods:
       warpgate = ec2 'Warpgate Node' {
         title 'warpgate (t3a.small)'
         description '''
-Dedicated security node with taint `role=security:NoSchedule`.
-Post-lockdown, this is the sole management entry point.
+Part of the same K8s cluster — tainted `role=security:NoSchedule`.
+Post-lockdown, Caddy reverse-proxies to Warpgate as the sole management entry point.
 
-Warpgate services:
+Warpgate services (separate `warpgate` namespace, OCI Helm chart):
 - SSH proxy on :2222
 - Admin UI on :8888
 - K8s proxy on :8443
@@ -78,11 +110,17 @@ Warpgate services:
 
 deployment {
 
-  // ── Master node — Caddy (hostPort) ──
+  // ── Master node — Caddy (hostPort) + audit pipeline ──
   extend aws.vpc.master {
     caddyInstance = instanceOf banking.caddy {
       title 'Caddy (hostPort 80/443/2222)'
-      description 'Pinned via nodeSelector. Handles all external traffic. Holds Let\'s Encrypt certs in emptyDir volume.'
+      description 'Pinned via nodeSelector. Handles all external traffic. Reverse-proxies to Kong (app), Warpgate (admin UI + SSH). Holds Let\'s Encrypt certs in emptyDir volume.'
+    }
+    // Audit pipeline: kube-apiserver → Vector → Parseable → SeaweedFS (all on master)
+    kubeApiAudit = ec2 'kube-apiserver audit' {
+      title 'kube-apiserver audit logs'
+      description 'CIS-aligned audit policy. Logs writes to `/var/log/kubernetes/audit/audit.log` on host filesystem (rotation: 30 days, 5 backups, 100 MB max).'
+      technology 'K8s audit policy'
     }
   }
 
@@ -122,5 +160,25 @@ deployment {
     redisInstance = instanceOf banking.redis {
       title 'Redis 8 (1Gi PV)'
     }
+  }
+
+  // ── Cross-node deployment relationships ──
+  aws.vpc.master.caddyInstance -> aws.vpc.warpgate 'reverse proxy (ClusterIP)' {
+    title 'Caddy → Warpgate'
+    description 'traffic via Cilium eBPF service routing'
+  }
+
+  // Audit data flow (all on master)
+  aws.vpc.master.kubeApiAudit -> aws.vpc.master.vector 'hostPath read' {
+    title 'audit logs → Vector'
+    description '/var/log/kubernetes/audit/*.log (readOnly)'
+  }
+  aws.vpc.master.vector -> aws.vpc.master.parseable 'HTTP POST /api/v1/ingest' {
+    title 'Vector → Parseable'
+    description 'batched, gzip-compressed, basic auth'
+  }
+  aws.vpc.master.parseable -> aws.vpc.master.seaweedfs 'S3 API :8333' {
+    title 'Parseable → SeaweedFS'
+    description 'Parquet columnar data, S3-compatible storage'
   }
 }

@@ -1,5 +1,4 @@
 global {
-  // Shared styles — applied by name in specific views
   style mute_externals github, ghcr, duckdns, instana {
     color muted
     opacity 60%
@@ -15,6 +14,14 @@ global {
     style argocd { color sky }
     style infra_repo { color bank_indigo }
   }
+
+  // ── View-level predicate groups for reuse ──
+  predicateGroup external_services {
+    include github, ghcr, duckdns, instana
+  }
+  predicateGroup gitops_infra {
+    include argocd, infra_repo
+  }
 }
 
 views 'Architecture' {
@@ -27,24 +34,36 @@ views 'Architecture' {
     description '''
 **Banking Demo** ecosystem — event-driven banking app on K8s (AWS EC2). ArgoCD syncs Helm chart from banking-demo-gitops. Infrastructure provisioned by bankind-demo-infra (Terraform + Ansible). Monitoring stack runs in-cluster. Instana provides production observability.
 '''
-    include *
-    exclude banking.ci
-
-    include
-      banking with {
-        navigateTo banking_system
-      }
+    global style mute_externals
 
     autoLayout LeftRight 150 100
 
-    style banking { color bank_green }
-
+    // Groups first — elements stay in their first group
     group 'External Services' {
+      color muted
+      opacity 30%
+      border dashed
       include github, ghcr, duckdns, instana
     }
     group 'GitOps & Infrastructure' {
+      color sky
+      opacity 25%
+      border dashed
       include argocd, infra_repo
     }
+
+    // Remaining elements outside groups
+    include
+      customer,
+      operator,
+      banking with {
+        navigateTo banking_system
+      },
+      monitoring
+
+    exclude banking.ci
+
+    style banking { color bank_green }
   }
 
   // ═══════════════════════════════════════════════════
@@ -57,8 +76,6 @@ views 'Architecture' {
 
 Backend services communicate over NATS RPC. PostgreSQL and Redis are StatefulSets with PersistentVolumes.
 '''
-    include *
-
     rank same { caddy }
     rank same { kong }
     rank same { frontend, producer }
@@ -73,23 +90,44 @@ Backend services communicate over NATS RPC. PostgreSQL and Redis are StatefulSet
     style caddy { color bank_green }
 
     group 'Ingress' {
+      color bank_green
+      opacity 25%
+      border dashed
       include caddy
     }
     group 'Gateway + Web' {
+      color bank_indigo
+      opacity 20%
+      border dashed
       include kong, frontend
     }
     group 'Bridge' {
+      color primary
+      opacity 20%
+      border dashed
       include producer
     }
     group 'Message Bus' {
+      color sky
+      opacity 20%
+      border dashed
       include nats, jets
     }
     group 'Consumers (Go)' {
+      color amber
+      opacity 15%
+      border dashed
       include auth, account, transfer, notify
     }
     group 'Data' {
+      color secondary
+      opacity 20%
+      border dashed
       include postgres, redis
     }
+
+    // Include relationships between all visible elements
+    include * -> *
   }
 
   // ═══════════════════════════════════════════════════
@@ -157,14 +195,36 @@ Backend services communicate over NATS RPC. PostgreSQL and Redis are StatefulSet
 2. **Redis pipeline** — 5 commands in 1 RTT (invalidate cache, update balances, publish notification)
 3. **JetStream** — publish event with Nats-Msg-Id dedup; account-service durable consumer replays on cold start to rebuild balance read model
 '''
-    include
-      customer,
-      transfer,
-      postgres,
-      redis,
-      jets,
-      account,
-      notify
+    autoLayout LeftRight 120 90
+
+    group 'Tier 1 — Serializable Transaction' {
+      color amber
+      opacity 20%
+      border dashed
+      include
+        transfer with {
+          navigateTo transfer_sequence
+        },
+        postgres
+    }
+    group 'Tier 2 — Redis Pipeline' {
+      color red
+      opacity 15%
+      border dashed
+      include redis
+    }
+    group 'Tier 3 — JetStream' {
+      color sky
+      opacity 15%
+      border dashed
+      include jets, account
+    }
+    group 'WebSocket Push' {
+      color bank_green
+      opacity 15%
+      border dashed
+      include notify, customer
+    }
 
     include transfer -> postgres
     include transfer -> redis
@@ -175,32 +235,12 @@ Backend services communicate over NATS RPC. PostgreSQL and Redis are StatefulSet
     include redis -> notify
     include notify -> customer
 
-    autoLayout LeftRight 120 90
-
-    include
-      transfer with {
-        navigateTo transfer_sequence
-      }
-
     style transfer { color amber }
     style postgres { color secondary }
     style redis { color red }
     style jets { color bank_amber }
     style account { color primary }
     style notify { color sky }
-
-    group 'Tier 1 — Serializable Transaction' {
-      include transfer, postgres
-    }
-    group 'Tier 2 — Redis Pipeline' {
-      include redis
-    }
-    group 'Tier 3 — JetStream' {
-      include jets, account
-    }
-    group 'WebSocket Push' {
-      include notify, customer
-    }
   }
 
   // ═══════════════════════════════════════════════════
@@ -237,25 +277,21 @@ Backend services communicate over NATS RPC. PostgreSQL and Redis are StatefulSet
     title 'Operations / Observability'
     description 'Every Go service exposes `/metrics` (Prometheus), `/health` (readiness), and exports OTLP/gRPC traces to Instana agent on :4317. Structured JSON logs via slog. Kong exports Prometheus + OTel via global plugins. NATS exporter on :7777. Self-hosted Grafana dashboard: "Banking Services".'
 
-    include
-      monitoring,
-      instana,
-      banking.auth,
-      banking.account,
-      banking.transfer,
-      banking.notify,
-      banking.producer,
-      banking.nats
-
-    include monitoring -> banking.auth, monitoring -> banking.account, monitoring -> banking.transfer, monitoring -> banking.notify, monitoring -> banking.producer, monitoring -> banking.nats
-    include instana -> banking.auth, instana -> banking.account, instana -> banking.transfer, instana -> banking.notify, instana -> banking.producer
-
     group 'Signals (emitters)' {
+      color amber
+      opacity 15%
+      border dashed
       include banking.auth, banking.account, banking.transfer, banking.notify, banking.producer, banking.nats
     }
     group 'Backends (collectors)' {
+      color bank_indigo
+      opacity 15%
+      border dashed
       include monitoring, instana
     }
+
+    include monitoring -> banking.auth, monitoring -> banking.account, monitoring -> banking.transfer, monitoring -> banking.notify, monitoring -> banking.producer, monitoring -> banking.nats
+    include instana -> banking.auth, instana -> banking.account, instana -> banking.transfer, instana -> banking.notify, instana -> banking.producer
 
     style monitoring { color bank_green }
     style instana { color bank_indigo }

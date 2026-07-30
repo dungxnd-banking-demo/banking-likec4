@@ -258,8 +258,8 @@ StatefulSet with volumeClaimTemplate.
   banking.nats -[nat_rpc]-> banking.notify 'banking.notification.*'
 
   // ── JetStream event flow (CQRS) ──
-  banking.transfer -[jetstream_evt]-> banking.jets 'transfer.completed' {
-    metadata { dedup 'Nats-Msg-Id'; stream 'BANKING_EVENTS'; subject 'transfer.completed' }
+  banking.transfer -[jetstream_evt]-> banking.jets 'banking.events.transfer.completed' {
+    metadata { dedup 'Nats-Msg-Id'; stream 'BANKING_EVENTS'; subject 'banking.events.transfer.completed' }
   }
   banking.jets -[jetstream_evt]-> banking.account 'replay → balance hash' {
     metadata { consumer 'account-service-balance'; policy 'DeliverAllPolicy' }
