@@ -1,13 +1,31 @@
+// ══════════════════════════════════════════════════════════════
+//  Shared global styles
+// ══════════════════════════════════════════════════════════════
+
+global {
+
+  style theme_entries customer, operator {
+    color primary
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  LOGICAL VIEWS
+// ══════════════════════════════════════════════════════════════
+
 views {
 
-  view index {
-    title 'System Landscape'
-    description """
-        **C4 Level 1 — System Context**
+  global style theme_entries
 
-        High-level view of the Banking Demo ecosystem. The Banking System is a Go/React event-driven banking application deployed on K8s (EC2). Infrastructure provisioned by Terraform + Ansible from bankind-demo-infra. ArgoCD syncs the Helm chart from banking-demo-gitops.
-        """
-    link https://github.com/dungxnd-banking-demo/banking-demo-revamp
+  // ── Level 1: System Landscape ──
+  view index {
+    title 'System Landscape — C4 Level 1'
+    description '''
+        **Banking Demo** ecosystem. Full-stack event-driven banking app on K8s (AWS EC2).
+
+        ArgoCD syncs Helm chart from banking-demo-gitops. Infra provisioned by bankind-demo-infra.
+        Monitoring stack runs in-cluster. Instana provides production observability.
+        '''
 
     include
       customer,
@@ -17,58 +35,57 @@ views {
       duckdns,
       instana,
       banking,
-      infraRepo,
-      argocd
+      argocd,
+      infra_repo,
+      monitoring
+
+    autoLayout LeftRight 140 100
 
     style banking {
-      color bank-green
-    }
-    style infraRepo {
-      color bank-indigo
+      color bank_green
     }
     style argocd {
       color sky
     }
+    style infra_repo {
+      color bank_indigo
+    }
+
+    group 'External Services' {
+      include github, ghcr, duckdns, instana
+    }
+    group 'GitOps & Infra' {
+      include argocd, infra_repo, monitoring
+    }
   }
 
-  view banking-system of banking {
-    title 'Banking System — Containers'
-    description """
-        **C4 Level 2 — Container View**
-
-        All 17 containers. Request flow: Browser → Caddy (TLS) → Kong (ClusterIP) → api-producer (Go/chi) → NATS RPC → 4 consumer services → PostgreSQL + Redis. WebSocket bypasses NATS: Kong → notification-service directly.
-        """
-
+  // ── Level 2: Container View ──
+  view banking_system of banking {
+    title 'Banking System — Containers (C4 Level 2)'
+    description '''
+        **17 containers**. Request: Browser → Caddy(TLS) → Kong(ClusterIP) → api-producer → NATS RPC → 4 services → PG+Redis.
+        WebSocket bypasses NATS: Kong → notification-service directly.
+        '''
     include *
+
+    // Rank constraints for clean rows
+    rank same { caddy, frontend }
+    rank same { kong, producer }
+    rank same { nats, jets }
+    rank same { auth, account, transfer, notify }
+    rank same { postgres, redis }
 
     autoLayout LeftRight 120 100
 
-    style caddy {
-      color bank-green
-    }
-    style kong {
-      color bank-indigo
-    }
-    style producer {
-      color primary
-    }
-    style nats {
-      color sky
-    }
-    style jets {
-      color bank-amber
-    }
-    style auth, account, transfer, notify {
-      color amber
-    }
-    style postgres {
-      color secondary
-    }
-    style redis {
-      color red
-    }
+    style caddy { color bank_green }
+    style kong { color bank_indigo }
+    style producer { color primary }
+    style nats, jets { color sky }
+    style auth, account, transfer, notify { color amber }
+    style postgres { color secondary }
+    style redis { color red }
 
-    group 'Entry Layer' {
+    group 'Entry' {
       include caddy, frontend
     }
     group 'Gateway + Bridge' {
@@ -80,19 +97,15 @@ views {
     group 'Consumer Services' {
       include auth, account, transfer, notify
     }
-    group 'Data Layer' {
+    group 'Data' {
       include postgres, redis
     }
   }
 
-  view api-request-flow of banking {
+  // ── API Request Flow (zoom-in on request path) ──
+  view api_flow of banking {
     title 'API Request Flow'
-    description """
-        **How an HTTP API call flows through the system.**
-
-        Path mapping: `POST /api/transfers` → `banking.transfer.transfer` via exact-match switch in producer/handlers.go. Auth headers (X-Session, X-Admin-Secret) travel as NATS message headers, not in JSON body. W3C traceparent injected. Nats-Trace-Dest sampled at 1% for server-level tracing.
-        """
-    link https://github.com/dungxnd-banking-demo/banking-demo-revamp/blob/main/producer/handlers.go
+    description 'GET/POST: Browser → Caddy → Kong → api-producer → NATS RPC → service. Auth headers (X-Session, X-Admin-Secret) in NATS message headers. W3C traceparent + Nats-Trace-Dest(1%).'
 
     include
       customer,
@@ -105,80 +118,73 @@ views {
       transfer,
       notify
 
-    style caddy {
-      color bank-green
-    }
-    style kong {
-      color bank-indigo
-    }
-    style producer {
-      color primary
-    }
-    style nats {
-      color sky
-    }
+    include customer -> caddy
+    include caddy -> kong
+    include kong -> producer
+    include producer -> nats
+    include nats -> auth, nats -> account, nats -> transfer, nats -> notify
+
+    autoLayout TopBottom 100 80
+
+    style caddy { color bank_green }
+    style kong { color bank_indigo }
+    style producer { color primary }
+    style nats { color sky }
   }
 
-  view nats-subjects of banking {
+  // ── NATS Subject Hierarchy ──
+  view nats_subjects of banking {
     title 'NATS Subject Hierarchy'
-    description """
-        **RPC subjects (Core NATS) + JetStream events.**
-
-        Each consumer registers as a nats/micro service with per-action endpoints using full subject as queue group. Auth headers travel as NATS message headers. JetStream events published with Nats-Msg-Id:{transferID} for dedup.
-        """
-    link https://github.com/dungxnd-banking-demo/banking-demo-revamp/blob/main/ARCH-NATS-RPC.md
+    description 'Core NATS request/reply (nats/micro) + JetStream durable events. Full subject = queue group for auto load-balancing across replicas.'
 
     include nats, auth, account, transfer, notify, jets
 
-    style nats {
-      color sky
-    }
-    style jets {
-      color bank-amber
-    }
+    include nats -> auth, nats -> account, nats -> transfer, nats -> notify
+    include transfer -> jets
+    include jets -> account
+
+    autoLayout TopBottom 100 80
+
+    style nats { color sky }
+    style jets { color bank_amber }
   }
 
-  view transfer-flow of banking {
-    title 'Transfer Flow — CQRS'
-    description """
-        **Money transfer with three-tier CQRS.**
+  // ── Transfer Flow — CQRS detail ──
+  view transfer_flow of banking {
+    title 'Transfer Flow — CQRS Three-Tier'
+    description '''
+        **Tier 1 (PostgreSQL):** SerializableTx (5× jitter retry on 40001). Lock ORDER BY id. Atomic debit+credit+3 inserts.
 
-        **Tier 1 (DB):** `SerializableTx` with jitter retry (up to 5x). Determistic lock ordering: `SELECT FOR UPDATE WHERE id IN (?,?) ORDER BY id`. Single UPDATE with CASE WHEN for balances. Atomic insert of transfer + 2 notifications.
+        **Tier 2 (Redis):** Post-commit pipeline — 5 commands in 1 RTT: DEL user_cache(×2), HSET balance(×2), PUBLISH notify.
 
-        **Tier 2 (Redis):** Post-commit pipeline in ONE round-trip: `DEL user_cache:phone`, `HSET balance {sender}`, `HSET balance {receiver}`, `PUBLISH notify:{receiver}`.
-
-        **Tier 3 (JetStream):** `PublishMsg` with `Nats-Msg-Id:{transferID}` header. Account-service durable pull consumer replays on cold start to rebuild balance hash without DB reads.
-        """
-    link https://github.com/dungxnd-banking-demo/banking-demo-revamp/blob/main/MICROSERVICES.md
-
+        **Tier 3 (JetStream):** PublishMsg with Nats-Msg-Id dedup. Account durable pull consumer replays on cold start to rebuild balance hash.
+        '''
     include
       customer,
       transfer,
-      nats,
-      jets,
-      account,
       postgres,
       redis,
+      jets,
+      account,
       notify
 
-    style transfer {
-      color amber
-    }
-    style jets {
-      color bank-amber
-    }
-    style postgres {
-      color secondary
-    }
-    style redis {
-      color red
-    }
-    style account {
-      color primary
-    }
-    style notify {
-      color sky
-    }
+    include transfer -> postgres
+    include transfer -> redis
+    include transfer -> jets
+    include jets -> account
+    include account -> postgres
+    include account -> redis
+    include redis -> notify
+    include notify -> customer
+
+    autoLayout LeftRight 120 90
+
+    style transfer { color amber }
+    style postgres { color secondary }
+    style redis { color red }
+    style jets { color bank_amber }
+    style account { color primary }
+    style notify { color sky }
 
     group 'Tier 1 — SerializableTx' {
       include transfer, postgres
@@ -186,41 +192,42 @@ views {
     group 'Tier 2 — Redis Pipeline' {
       include redis
     }
-    group 'Tier 3 — JetStream Event Log' {
+    group 'Tier 3 — JetStream' {
       include jets, account
     }
-    group 'Real-time Notification' {
+    group 'WebSocket Push' {
       include notify, customer
     }
   }
 
-  view data-layer of banking {
-    title 'Data Layer'
-    description """
-        **PostgreSQL schema and Redis key space.**
+  // ── Data Layer ──
+  view data_layer of banking {
+    title 'Data Layer — PostgreSQL + Redis'
+    description 'PostgreSQL tables + Redis key space. 4 services share one DB (banking). Redis provides sessions, cache, CQRS read model, and pub/sub.'
 
-        PostgreSQL: users (BIGINT PK, phone/account_number/username UNIQUE, balance ≥ 0), transfers (BIGINT, FK, amount > 0, composite indexes), notifications (BIGINT, FK, is_read). Migrated via golang-migrate in 3 steps.
+    include
+      auth,
+      account,
+      transfer,
+      notify,
+      postgres,
+      redis
 
-        Redis: sessions (24h), user_cache (5min, DEL'd post-transfer), balance hash (CQRS read model, no TTL), presence (60s, WS heartbeat), notify:{uid} pub/sub channel.
-        """
+    include auth -> postgres,    auth -> redis
+    include account -> postgres, account -> redis
+    include transfer -> postgres, transfer -> redis
+    include notify -> postgres,  notify -> redis
 
-    include auth, account, transfer, notify, postgres, redis
+    autoLayout TopBottom 100 80
 
-    style postgres {
-      color secondary
-    }
-    style redis {
-      color red
-    }
+    style postgres { color secondary }
+    style redis { color red }
   }
 
-  view observability-stack of banking {
-    title 'Observability Stack'
-    description """
-        **Three pillars: structured JSON logs (slog), Prometheus metrics, OpenTelemetry distributed tracing.**
-
-        All services expose /metrics via promhttp, emit JSON logs to stdout (slog), and export OTLP/gRPC traces (→ Instana agent or OTel Collector). NATS micro provides per-endpoint stats. nginx has ngx_otel_module. Instana Go Collector instruments pgxpool and go-redis.
-        """
+  // ── Observability ──
+  view observability_view of banking {
+    title 'Observability — Logs, Metrics, Traces'
+    description 'All services: JSON logs(slog)→stdout, Prometheus /metrics, OTLP/gRPC→Instana or OTel Collector. nats/micro per-endpoint stats. nginx ngx_otel_module.'
 
     include
       auth,
@@ -232,57 +239,45 @@ views {
       monitoring,
       instana
 
-    style monitoring {
-      color bank-green
-    }
-    style instana {
-      color bank-indigo
-    }
+    include auth      -> monitoring, auth      -> instana
+    include account   -> monitoring, account   -> instana
+    include transfer  -> monitoring, transfer  -> instana
+    include notify    -> monitoring, notify    -> instana
+    include producer  -> monitoring, producer  -> instana
+    include nats      -> monitoring
 
-    group 'Signals emitted' {
+    group 'Services (signals)' {
       include auth, account, transfer, notify, producer, nats
     }
     group 'Backends' {
       include monitoring, instana
     }
+
+    style monitoring { color bank_green }
+    style instana { color bank_indigo }
   }
 
-  view gitops-pipeline of banking {
+  // ── GitOps Pipeline ──
+  view gitops_pipeline of banking {
     title 'GitOps CI/CD Pipeline'
-    description """
-        **Three repos, one pipeline.**
+    description '3 repos, 1 pipeline: revamp(CI build)→GHCR → gitops(tag bump)→ArgoCD(auto-sync). bankind-demo-infra provisions EC2+K8s+ArgoCD. banking-likec4 documents architecture.'
 
-        1. banking-demo-revamp: GitHub Actions builds Go (GOWORK=off) + React (node:24→nginx:alpine) images, pushes to GHCR
-        2. CI bumps image tags in banking-demo-gitops/helm/values.yaml (Stage 3)
-        3. ArgoCD detects diff → auto-syncs (prune + selfHeal, 3-retry backoff)
-        4. bankind-demo-infra: Terraform (spot EC2, SG) + Ansible (os-hardening, containerd, kubeadm, Cilium, ArgoCD install)
-        """
+    include
+      ci,
+      github,
+      ghcr,
+      argocd,
+      infra_repo
 
-    include ci, argocd
+    include ci      -> github,     ci      -> ghcr
+    include github  -> argocd,     ghcr    -> argocd
+    include argocd  -> banking,    infra_repo -> banking
+    include infra_repo -> argocd
 
-    style ci {
-      color amber
-    }
-    style argocd {
-      color bank-green
-    }
-  }
+    autoLayout LeftRight 120 100
 
-  view redis-keyspace of banking {
-    title 'Redis Key Space & CQRS'
-    description """
-        **How Redis enables CQRS and real-time notifications.**
-
-        - `session:{sid}` → user ID lookup (all services, 24h TTL)
-        - `user_cache:{phone}` → login fast-path (auth writes, transfer DEL's on commit, 5min TTL)
-        - `balance` hash → CQRS read model (transfer HSET, account HGet O(1) → DB fallback + backfill)
-        - `notify:{uid}` pub/sub → transfer PUBLISH, notify SUBSCRIBE → WebSocket JSON frame push
-        - `presence:{uid}` → online status heartbeat at TTL/3 interval
-        """
-    include redis, auth, account, transfer, notify
-
-    style redis {
-      color red
-    }
+    style ci { color amber }
+    style argocd { color sky }
+    style infra_repo { color bank_indigo }
   }
 }

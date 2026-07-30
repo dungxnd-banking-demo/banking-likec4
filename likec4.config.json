@@ -7,13 +7,6 @@
     "domain": "banking"
   },
   "landingPage": {
-    "include": ["index", "banking-system", "api-request-flow", "transfer-flow", "deployment-infra"]
-  },
-  "styles": {
-    "defaults": {
-      "relationship": {
-        "arrow": "normal"
-      }
-    }
+    "redirect": true
   }
 }

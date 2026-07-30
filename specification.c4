@@ -1,117 +1,50 @@
 specification {
-  // ── People & Actors ──
-  element actor {
-    style { shape person }
-  }
-  element operator {
-    style { shape person }
-  }
 
-  // ── System-level ──
-  element system
+  // ── Element kinds with shapes ──
+  element actor          { style { shape person } }
+  element person         { style { shape person } }
+  element system         { style { color primary } }
+  element externalSystem { style { color muted } }
 
-  // ── Container-level ──
-  element gateway {
-    style { icon tech:kong }
-  }
-  element proxy
-  element webapp {
-    style { shape browser }
-  }
-  element bridge {
-    style { icon tech:go }
-  }
-  element microservice {
-    style { icon tech:go }
-  }
-  element messagebus {
-    style { icon tech:nats-icon }
-  }
-  element eventbus {
-    style { icon tech:nats-icon }
-  }
-  element cache {
-    style { icon tech:redis; shape storage }
-  }
-  element database {
-    style { icon tech:postgresql; shape storage }
-  }
-  element observability
+  element proxy       { notation 'Edge Proxy' }
+  element webapp      { notation 'SPA'; style { shape browser } }
+  element apigateway  { notation 'API Gateway'; style { icon tech:kong } }
+  element bridge      { notation 'Bridge'; style { icon tech:go } }
+  element service     { notation 'Service'; style { icon tech:go } }
+  element messagebus  { notation 'Msg Bus'; style { icon tech:nats-icon } }
+  element eventstore  { notation 'Event Store'; style { icon tech:nats-icon } }
+  element db          { notation 'Database'; style { icon tech:postgresql; shape storage } }
+  element kvstore     { notation 'KV Store'; style { icon tech:redis; shape storage } }
+  element o11y        { notation 'O11y'; style { icon tech:grafana } }
+
+  // ── Relationship kinds with real visual differentiation ──
+  relationship https          { line solid;    color secondary; head normal;  title 'HTTPS' }
+  relationship nat_rpc        { line solid;    color green;     head diamond; title 'NATS RPC' }
+  relationship jetstream_evt  { line dashed;   color amber;     head normal;  title 'JetStream' }
+  relationship websocket_cn   { line solid;    color sky;       head normal;  title 'WebSocket' }
+  relationship redis_cmd      { line dashed;   color red;       head normal;  title 'Redis' }
+  relationship sql_tx         { line solid;    color gray;      head normal;  title 'SQL' }
+  relationship gitops         { line solid;    color sky;       head diamond; title 'GitOps Sync' }
+  relationship provision      { line dotted;   color muted;     head normal;  title 'Provision' }
+  relationship push_image     { line dotted;   color muted;     head normal;  title 'Push Image' }
+  relationship oltp_grpc      { line dotted;   color gray;      head normal;  title 'OTLP/gRPC' }
 
   // ── Tags ──
-  tag next
-  tag live
-  tag deprecated
-  tag cqrs
-  tag event-driven
-  tag gateway-tag
+  tag cqrs       { color #1b5e20 }
+  tag event_driven { color #0d47a1 }
+  tag stateful
+  tag stateless
+  tag realtime
 
-  // ── Relationship kinds ──
-  relationship http {
-    title 'HTTPS'
-    technology 'HTTP/1.1'
-    line solid
-    color secondary
-  }
-  relationship nats-rpc {
-    title 'NATS RPC'
-    technology 'NATS Core'
-    line solid
-    color green
-  }
-  relationship nats-jetstream {
-    title 'JetStream'
-    technology 'NATS JetStream'
-    line dashed
-    color amber
-  }
-  relationship ws {
-    title 'WebSocket'
-    technology 'WSS'
-    line solid
-    color sky
-  }
-  relationship redis-pubsub {
-    title 'Redis Pub/Sub'
-    technology 'Redis'
-    line dashed
-    color red
-  }
-  relationship sql {
-    title 'SQL'
-    technology 'PostgreSQL'
-    line solid
-    color gray
-  }
-  relationship deploy {
-    title 'Deploys'
-    line dotted
-    color muted
-  }
-  relationship sync-gitops {
-    title 'GitOps Sync'
-    technology 'ArgoCD'
-    line solid
-    color sky
-  }
-  relationship provisions {
-    title 'Provisions'
-    technology 'Terraform / Ansible'
-    line dotted
-    color muted
-  }
-
-  // ── Deployment node kinds ──
+  // ── Deployment node kinds with AWS icons ──
   deploymentNode cloud
+  deploymentNode region
   deploymentNode vpc
-  deploymentNode ec2 {
-    notation 'EC2 Instance'
-    technology 'AWS EC2'
-  }
+  deploymentNode ec2 { notation 'EC2'; technology 'AWS EC2 · Spot' }
 
   // ── Colors ──
-  color bank-green #2e7d32
-  color bank-indigo #283593
-  color bank-amber #f57c00
-  color bank-red #c62828
+  color bank_green  #2e7d32
+  color bank_indigo #283593
+  color bank_amber  #f57c00
+  color bank_red    #c62828
 }

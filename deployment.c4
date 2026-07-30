@@ -4,56 +4,55 @@ deployment {
     title 'AWS ap-southeast-1'
 
     vpc = vpc 'Default VPC' {
-      description 'Default VPC with public subnet. Spot instances with random public IPs.'
+      description 'Default VPC with public subnet. 4 spot EC2 instances with random public IPs.'
 
       sg = ec2 'Security Group' {
-        description 'Phased SG: provisioning (SSH:22 + kube-api:6443 from admin CIDR, intra-cluster all). Lockdown (only 80/443/2222 from 0.0.0.0/0, 6443 self only).'
-        technology 'AWS Security Group'
+        description 'Phased: provisioning (SSH:22 + kube-api:6443 from admin CIDR). Lockdown (only 80/443/2222 from 0.0.0.0/0).'
+        technology 'AWS SG'
       }
 
       master = ec2 'Master Node' {
-        title 'master (t3a.medium, spot)'
-        description 'Ubuntu 26.04. K8s control-plane. Caddy hostPort 80/443/2222 (hostNetwork). ArgoCD. Cilium CNI with kube-proxy replacement. kube-apiserver audit logging (CIS-aligned policy).'
+        title 'master (t3a.medium)'
+        description 'Ubuntu 26.04. K8s control-plane. Caddy hostPort 80/443/2222. ArgoCD. Cilium CNI kube-proxy replacement. kube-apiserver audit (CIS policy).'
         technology 'Ubuntu 26.04'
       }
 
       worker1 = ec2 'Worker Node 1' {
-        title 'worker-1 (t3a.medium, spot)'
-        description 'K8s worker. Runs entry + messaging pods: Frontend, Kong, api-producer, NATS. Cilium eBPF service routing.'
+        title 'worker-1 (t3a.medium)'
+        description 'Entry + messaging pods: Frontend, Kong, api-producer, NATS.'
         technology 'Ubuntu 26.04'
       }
 
       worker2 = ec2 'Worker Node 2' {
-        title 'worker-2 (t3a.medium, spot)'
-        description 'K8s worker. Runs service + data pods: auth, account, transfer, notification, PostgreSQL, Redis.'
+        title 'worker-2 (t3a.medium)'
+        description 'Service + data pods: auth, account, transfer, notification, PostgreSQL, Redis.'
         technology 'Ubuntu 26.04'
       }
 
-      warpgateNode = ec2 'Warpgate Node' {
-        title 'warpgate-node (t3a.small, spot)'
-        description 'Dedicated security node. Tainted role=security:NoSchedule. Runs Warpgate SSH proxy (2222) + admin UI (8888) + K8s proxy (8443). SQLite DB on 10Gi PVC.'
+      warpgate = ec2 'Warpgate Node' {
+        title 'warpgate (t3a.small)'
+        description 'Dedicated security node. Taint role=security:NoSchedule. Warpgate SSH proxy + admin UI + K8s proxy. SQLite 10Gi PVC.'
         technology 'Ubuntu 26.04'
       }
     }
   }
 }
 
-// ── Deploy banking containers onto EC2 nodes ──
 deployment {
   extend aws.vpc.master {
     caddyInstance = instanceOf banking.caddy {
       title 'Caddy (hostPort)'
-      description 'K8s Deployment with hostNetwork:true on master. Binds hostPort 80, 443, 2222. TLS via Let\'s Encrypt HTTP-01 challenge. Reverse-proxies to Kong + Warpgate via ClusterIP + Cilium eBPF routing.'
+      description 'hostNetwork:true. Binds 80/443 for app traffic, 2222 for Warpgate SSH proxy.'
     }
   }
 
   extend aws.vpc.worker1 {
     frontendInstance = instanceOf banking.frontend {
-      title 'Frontend SPA (nginx:alpine)'
-      description 'nginx with ngx_otel_module. SPA fallback. proxy_pass /api/* and /ws → kong:8000.'
+      title 'Frontend (nginx:alpine)'
+      description 'ngx_otel_module. proxy_pass /api/* & /ws → kong:8000.'
     }
     kongInstance = instanceOf banking.kong {
-      title 'Kong Gateway (ClusterIP :8000)'
+      title 'Kong :8000 (ClusterIP)'
     }
     producerInstance = instanceOf banking.producer {
       title 'api-producer :8080'
@@ -68,13 +67,13 @@ deployment {
       title 'auth-service :8001'
     }
     accountInstance = instanceOf banking.account {
-      title 'account-service :8002 + balance projection'
+      title 'account-service :8002'
     }
     transferInstance = instanceOf banking.transfer {
       title 'transfer-service :8003'
     }
     notifyInstance = instanceOf banking.notify {
-      title 'notification-service :8004 + WebSocket'
+      title 'notification-service :8004'
     }
     postgresInstance = instanceOf banking.postgres {
       title 'PostgreSQL 18 (5Gi PV)'

@@ -1,188 +1,200 @@
 model {
 
-  // ── Actors ──
-  customer = actor 'Customer' {
-    description 'End user with a web browser. Logs in, checks balance, sends money, receives real-time WebSocket notifications.'
-  }
-  operator = operator 'Operations Engineer' {
-    description 'Manages infra and deploys via GitOps. Accesses cluster through Warpgate SSH proxy (2222).'
+  customer = person 'Customer' {
+    description 'End user. Opens the app, logs in, checks balance, sends money, receives real-time WebSocket notifications.'
   }
 
-  // ── External Systems ──
-  github = system 'GitHub' {
-    description 'Hosts source code, Helm chart + ArgoCD manifests, and runs CI via GitHub Actions.'
+  operator = person 'Platform Engineer' {
+    description 'Provisions infra, deploys via ArgoCD. Accesses cluster exclusively via Warpgate SSH proxy on :2222.'
   }
-  ghcr = system 'GHCR' {
-    description 'GitHub Container Registry — stores Docker images built by CI.'
+
+  github = externalSystem 'GitHub' {
+    technology 'SaaS'
+    description 'Hosts 4 repos (revamp, gitops, infra, likec4). GitHub Actions CI builds Go+React, pushes to GHCR, bumps tags.'
+  }
+
+  ghcr = externalSystem 'GHCR' {
     technology 'OCI Registry'
+    description 'GitHub Container Registry. Stores multi-arch Docker images tagged with git SHA.'
   }
-  duckdns = system 'DuckDNS' {
-    description 'Free dynamic DNS. systemd service on master node keeps A-record pointed at EC2 public IP.'
+
+  duckdns = externalSystem 'DuckDNS' {
     technology 'Dynamic DNS'
-  }
-  instana = system 'Instana' {
-    description 'Production observability backend. Host agent collects OTLP/gRPC traces on :4317. Go services use Instana Go Collector. Synthetic monitoring scripts for health, login, transfer, auth edge cases.'
-    technology 'Instana'
+    description 'Systemd service on master node: polls public IP via IMDSv2, updates A-record. Enables Let\'s Encrypt TLS without static IP.'
   }
 
-  // ── Infrastructure repo (provisioning) ──
-  infraRepo = system 'bankind-demo-infra' {
-    description 'Terraform (spot EC2, SG) + Ansible (os-hardening, containerd, kubeadm, Cilium, ArgoCD). 4 nodes: 1 master + 2 workers + 1 warpgate. Locks down SSH(22) + kube-apiserver(6443) post-provision.'
+  instana = externalSystem 'Instana' {
+    technology 'APM · OTel Backend'
+    description 'Production observability. Host agent on :4317 collects OTLP/gRPC traces. Go Collector instruments pgxpool + go-redis.'
+  }
+
+  infra_repo = externalSystem 'bankind-demo-infra' {
     technology 'Terraform · Ansible'
+    description 'Provisions 4 EC2 spot instances + SG. Ansible 9 plays: os → containerd → kubeadm → Cilium → ArgoCD → deploy → lockdown.'
   }
 
-  // ── ArgoCD (GitOps bridge, not inside banking) ──
   argocd = system 'ArgoCD' {
-    description 'GitOps controller watching banking-demo-gitops/main/helm/. Automated sync with prune + selfHeal + 3-retry backoff. Server-side apply for Kong config.'
-    technology 'ArgoCD'
+    technology 'GitOps Controller'
+    description 'Watches banking-demo-gitops/helm/. Automated sync: prune + selfHeal, 3-retry backoff, server-side apply for Kong annotations.'
   }
 
-  // ── Banking System ──
+  monitoring = o11y 'Monitoring' {
+    technology 'Prometheus · Grafana · Jaeger'
+    description 'Self-hosted. 4 scrape jobs at 15s, "Banking Services" dashboard, OTel Collector → Jaeger.'
+  }
+
+  // ═══════════════════════════════════════════════════
+  //  BANKING SYSTEM
+  // ═══════════════════════════════════════════════════
+
   banking = system 'Banking System' {
-    description 'Full-stack event-driven banking application: React SPA → Caddy → Kong → api-producer (Go/chi) → NATS RPC → 4 Go microservices → PostgreSQL + Redis. CQRS read model via Redis balance hash + JetStream event log.'
+    description 'Event-driven banking app on K8s (EC2). React → Caddy → Kong → api-producer → NATS → 4 Go microservices → PostgreSQL + Redis.'
 
-    caddy = proxy 'Caddy' {
-      #gateway-tag
-      title 'Caddy 2.11'
-      description 'Edge proxy on control-plane node (hostPort 80/443/2222, hostNetwork). TLS termination via Let\'s Encrypt HTTP-01 challenge. Reverse-proxies to Kong (ClusterIP) and Warpgate. HTTP→HTTPS redirect.'
-      technology 'Caddy Server'
+    caddy = proxy 'Caddy :80,443,2222' {
+      #stateless
+      technology 'Caddy 2.11'
+      description 'Edge proxy. hostPort + hostNetwork on control-plane. TLS termination via Let\'s Encrypt. Reverse-proxy to Kong + Warpgate.'
+      metadata { ports '80, 443, 2222'; net 'hostNetwork'; tls 'Let\'s Encrypt HTTP-01' }
     }
 
-    frontend = webapp 'Frontend SPA' {
-      description 'React 19 + Vite 8 + Tailwind CSS 4. Served by nginx:alpine with ngx_otel_module for trace span export. Proxies /api/* and /ws to Kong:8000. WebSocket for live transfer notifications with optimistic balance update.'
-      technology 'React 19'
+    frontend = webapp 'Frontend :80' {
+      #stateless
+      technology 'React 19 · Vite 8'
+      description 'nginx:alpine + ngx_otel_module. proxy_pass /api/* & /ws → Kong:8000. WebSocket with optimistic balance update.'
+      metadata { otel 'ngx_otel_module.so'; proxy_target 'kong:8000' }
     }
 
-    kong = gateway 'Kong Gateway' {
-      #gateway-tag
-      title 'Kong 3.9'
-      description 'API gateway (DB-less, ClusterIP). Routes /api/* → api-producer, /ws → notification-service. Global plugins: Prometheus metrics, OpenTelemetry tracing → Instana. Per-route: CORS, rate-limiting, request-size-limiting.'
-      technology 'Kong Gateway'
+    kong = apigateway 'Kong 3.9 :8000' {
+      #stateless
+      technology 'Kong · DB-less · ClusterIP'
+      description 'Global plugins: Prometheus, OTel→Instana. Routes: /api/*→producer, /ws→notification. CORS + rate-limiting per-route.'
+      metadata { mode 'DB-less'; routes '/api/*, /ws'; plugins 'CORS, rate-limit, OTel, Prometheus' }
     }
 
-    producer = bridge 'API Producer' {
-      title 'api-producer :8080'
-      description 'Stateless HTTP → NATS RPC proxy. chi router + otelhttp middleware + Instana TracingHandlerFunc. Maps RESTful paths to NATS subjects. Injects W3C traceparent + Nats-Trace-Dest (1% sampled) headers. Unknown paths → 404 without NATS round-trip. 60s response timeout.'
-      technology 'Go 1.26'
+    producer = bridge 'api-producer :8080' {
+      #stateless
+      technology 'Go · chi · otelhttp'
+      description 'Stateless HTTP→NATS RPC. exact-match path→subject. W3C traceparent injected. Nats-Trace-Dest sampled 1%. 404 on unknown, 503 on no-responders, 504 on timeout(60s).'
+      metadata { language 'Go 1.26'; rpc_timeout '60s'; trace_sample '1%' }
     }
 
-    nats = messagebus 'NATS' {
-      #event-driven
-      title 'NATS 2 + JetStream'
-      description 'Core NATS request/reply via nats/micro framework (per-action endpoints with queue groups). JetStream: BANKING_EVENTS stream (30-day LimitsPolicy, 5-min Nats-Msg-Id dedup). nats-exporter sidecar scrapes /varz/connz/subsz → Prometheus at :7777.'
-      technology 'NATS'
+    nats = messagebus 'NATS + JetStream :4222' {
+      #event_driven
+      technology 'NATS 2 · nats/micro'
+      description 'Core: request/reply with per-action queue groups. JetStream: BANKING_EVENTS stream (30d, Nats-Msg-Id dedup). nats-exporter→Prom :7777.'
+      metadata { stream 'BANKING_EVENTS'; retention '30 days'; exporter ':7777' }
     }
 
-    jets = eventbus 'JetStream Event Log' {
-      #cqrs #event-driven
-      title 'BANKING_EVENTS'
-      description 'JetStream stream capturing banking.events.transfer.completed. Durable pull consumer (account-service-balance, DeliverAllPolicy, MaxAckPending=100) replays on cold start to rebuild Redis balance hash without touching DB.'
+    jets = eventstore 'BANKING_EVENTS' {
+      #cqrs #event_driven
       technology 'NATS JetStream'
+      description 'Durable event log. Durable pull consumer account-service-balance (DeliverAllPolicy, MaxAckPending=100).'
+      metadata { consumer 'account-service-balance'; policy 'DeliverAllPolicy' }
     }
 
-    auth = microservice 'Auth Service' {
-      title 'auth-service :8001'
-      description 'Register (12-digit account number, bcrypt), login (Redis user_cache:phone/username → DB fallback + backfill), logout (DEL session). NATS subjects: banking.auth.register, banking.auth.login, banking.auth.logout. Go/chi + pgxpool (15 conns, 30s statement_timeout).'
-      technology 'Go 1.26'
+    auth = service 'Auth Service :8001' {
+      technology 'Go 1.26 · bcrypt · pgxpool'
+      description 'Register (12-digit acct + bcrypt cost 10), Login (Redis user_cache→DB backfill), Logout (DEL session). banking.auth.{register,login,logout}.'
+      metadata { endpoints 'register, login, logout, health'; pool '15 conns · 30s timeout' }
     }
 
-    account = microservice 'Account Service' {
+    account = service 'Account Service :8002' {
       #cqrs
-      title 'account-service :8002'
-      description 'User: me, balance (Redis HGet O(1) → DB fallback + backfill), lookup. Admin (RequireAdmin): stats (aggregate counts), users (paginated + ILIKE search), transfers (+ username resolution), notifications, user-detail. Balance projection goroutine consumes BANKING_EVENTS with DeliverAllPolicy. Shared NATS conn for RPC + JetStream.'
-      technology 'Go 1.26'
+      technology 'Go 1.26 · JetStream consumer'
+      description 'User: me, balance(Redis HGet→DB backfill), lookup. Admin(RequireAdmin): stats, users(ILIKE), transfers(JOIN), notifications, user-detail. JetStream balance projection goroutine.'
+      metadata { endpoints 'me, balance, lookup, stats, users, transfers, notifications, user-detail'; read_model 'Redis hash → DB fallback' }
     }
 
-    transfer = microservice 'Transfer Service' {
+    transfer = service 'Transfer Service :8003' {
       #cqrs
-      title 'transfer-service :8003'
-      description 'Atomic transfer: SerializableTx (retries SQLSTATE 40001 up to 5x with jitter), deterministic lock ordering (SELECT FOR UPDATE ORDER BY id). Post-commit Redis pipeline (DEL user_cache, HSET balance, PUBLISH notify) + JetStream publish (Nats-Msg-Id dedup). Amounts logged via HMAC masking.'
-      technology 'Go 1.26'
+      technology 'Go 1.26 · SerializableTx'
+      description 'SerializableTx(5× jitter retry). Lock ORDER BY id. Atomic debit+credit. Post-commit: Redis pipeline(5-cmd 1RTT) + JetStream publish(Nats-Msg-Id). Amounts HMAC-masked.'
+      metadata { isolation 'SERIALIZABLE · 5× jitter'; pipeline '5-cmd 1 RTT'; masking 'HMAC-SHA256' }
     }
 
-    notify = microservice 'Notification Service' {
-      title 'notification-service :8004'
-      description 'NATS: notifications (last 50), ack (mark read, user_id guard). WebSocket via coder/websocket: auth via ?session= query param, presence heartbeat at TTL/3 interval. Subscribes to notify:{userID} Redis pub/sub → JSON frame push. WriteTimeout: 0 for long-lived WS. OTel via otelhttp.NewHandler.'
-      technology 'Go 1.26'
+    notify = service 'Notification Service :8004' {
+      #realtime
+      technology 'Go 1.26 · coder/websocket'
+      description 'NATS: notifications(last 50), ack(mark read). WebSocket: coder/websocket, ?session= auth, presence heartbeat TTL/3. Subscribe notify:{uid}→JSON frame push.'
+      metadata { ws_lib 'coder/websocket'; presence 'TTL/3 heartbeat (20s)' }
     }
 
-    postgres = database 'PostgreSQL' {
-      title 'PostgreSQL 18'
-      description 'Primary DB (banking). Tables: users (BIGINT PK, phone/account_number/username UNIQUE, balance INTEGER ≥ 0), transfers (BIGINT, from_user/to_user FK, amount > 0, composite indexes), notifications (BIGINT, user_id FK, is_read). Migrations: 000001_init, 000002_constraints_and_indexes, 000003_bigint_ids.'
-      technology 'PostgreSQL 18'
+    postgres = db 'PostgreSQL 18' {
+      #stateful
+      technology 'pgx · 5Gi PV'
+      description 'Users(BIGINT, UNIQUE phone/account_number/username, balance≥0). Transfers(BIGINT FK, amount>0, composite DESC idx). Notifications(BIGINT FK, is_read). 3 migrate steps.'
+      metadata { storage '5Gi'; tables 'users, transfers, notifications'; pool '15 · 30s timeout' }
     }
 
-    redis = cache 'Redis' {
-      title 'Redis 8'
-      description 'session:{sid} (24h TTL), user_cache:phone (5min, DEL\'d post-transfer), balance hash (no TTL, CQRS read model), presence:{uid} (60s, WS heartbeat), notify:{uid} pub/sub channel. Instana instrumentation hook on client.'
-      technology 'Redis 8'
-    }
-
-    monitoring = observability 'Monitoring Stack' {
-      description 'Self-hosted in monitoring namespace: Prometheus (4 scrape jobs, 15s interval), Grafana 11.2 (pre-built "Banking Services" dashboard), Jaeger all-in-one (OTLP ingest), OTel Collector (OTLP→Jaeger+logging). nginx Ingress for UI access.'
-      technology 'Prometheus · Grafana · Jaeger'
+    redis = kvstore 'Redis 8' {
+      #stateful
+      technology 'go-redis · 1Gi PV'
+      description 'session:{sid}(24h), user_cache:{phone}(5min), balance hash(CQRS,no TTL), presence:{uid}(60s), notify:{uid} pub/sub.'
+      metadata { storage '1Gi'; keys 'session, user_cache, balance, presence, notify' }
     }
 
     ci = system 'CI Pipeline' {
-      description 'GitHub Actions: Stage 1 builds Docker images (Go services via GOWORK=off + React via node:24-alpine→nginx:alpine), pushes to GHCR. Stage 3 bumps image tags in banking-demo-gitops helm/values.yaml.'
       technology 'GitHub Actions'
+      description 'On push→main: build Go(GOWORK=off,CGO=0) + React(node→nginx:alpine), push→GHCR, bump tags→gitops.'
+      metadata { stage1 'build'; stage2 'push GHCR'; stage3 'bump tags in gitops' }
     }
   }
 
-  // ── Relationships ──
+  // ═══════════════════════════════════════════════════
+  //  RELATIONSHIPS
+  // ═══════════════════════════════════════════════════
 
-  customer -[http]-> banking.caddy 'opens app in browser'
+  customer -[https]-> banking.caddy 'opens app'
+  banking.caddy -[https]-> banking.frontend 'serves SPA'
+  banking.caddy -[https]-> banking.kong 'reverse_proxy'
+  banking.frontend -[https]-> banking.kong '/api/*, /ws'
 
-  banking.caddy -[http]-> banking.frontend 'serves SPA'
-  banking.caddy -[http]-> banking.kong 'reverse_proxy → ClusterIP'
-  banking.frontend -[http]-> banking.kong '/api/* and /ws (nginx proxy_pass)'
+  banking.kong -[https]-> banking.producer '/api/*'
+  banking.kong -[websocket_cn]-> banking.notify '/ws (bypass NATS)'
 
-  banking.kong -[http]-> banking.producer '/api/* routes'
-  banking.kong -[ws]-> banking.notify '/ws direct route'
+  banking.producer -[nat_rpc]-> banking.nats 'path→subject map'
 
-  banking.producer -[nats-rpc]-> banking.nats 'maps RESTful path → NATS subject'
+  banking.nats -[nat_rpc]-> banking.auth 'banking.auth.*'
+  banking.nats -[nat_rpc]-> banking.account 'banking.account.*'
+  banking.nats -[nat_rpc]-> banking.transfer 'banking.transfer.transfer'
+  banking.nats -[nat_rpc]-> banking.notify 'banking.notification.*'
 
-  banking.nats -[nats-rpc]-> banking.auth 'banking.auth.{register,login,logout}'
-  banking.nats -[nats-rpc]-> banking.account 'banking.account.{me,balance,lookup,stats,users,transfers,notifications,user-detail}'
-  banking.nats -[nats-rpc]-> banking.transfer 'banking.transfer.transfer'
-  banking.nats -[nats-rpc]-> banking.notify 'banking.notification.{notifications,ack}'
+  banking.transfer -[jetstream_evt]-> banking.jets 'transfer.completed'
+  banking.jets -[jetstream_evt]-> banking.account 'replay → balance hash'
 
-  banking.transfer -[nats-jetstream]-> banking.jets 'banking.events.transfer.completed'
-  banking.jets -[nats-jetstream]-> banking.account 'durable pull consumer (DeliverAll)'
+  banking.auth -[sql_tx]-> banking.postgres 'users'
+  banking.account -[sql_tx]-> banking.postgres 'queries + JOINs'
+  banking.transfer -[sql_tx]-> banking.postgres 'SerializableTx'
+  banking.notify -[sql_tx]-> banking.postgres 'notifications'
 
-  banking.auth -[sql]-> banking.postgres 'users table'
-  banking.account -[sql]-> banking.postgres 'queries + admin aggregations'
-  banking.transfer -[sql]-> banking.postgres 'SerializableTx (debit, credit, insert transfers + notifications)'
-  banking.notify -[sql]-> banking.postgres 'notifications table'
+  banking.auth -[redis_cmd]-> banking.redis 'sessions + cache'
+  banking.account -[redis_cmd]-> banking.redis 'balance hash (CQRS)'
+  banking.transfer -[redis_cmd]-> banking.redis '5-cmd pipeline'
+  banking.notify -[redis_cmd]-> banking.redis 'SUBSCRIBE notify:{uid}'
 
-  banking.auth -[redis-pubsub]-> banking.redis 'sessions + user_cache'
-  banking.account -[redis-pubsub]-> banking.redis 'balance hash (CQRS read model)'
-  banking.transfer -[redis-pubsub]-> banking.redis 'DEL cache, HSET balance, PUBLISH notify (pipeline)'
-  banking.notify -[redis-pubsub]-> banking.redis 'SUBSCRIBE notify:{uid} → WebSocket push'
+  monitoring -[https]-> banking.auth 'scrape /metrics'
+  monitoring -[https]-> banking.account 'scrape /metrics'
+  monitoring -[https]-> banking.transfer 'scrape /metrics'
+  monitoring -[https]-> banking.notify 'scrape /metrics'
+  monitoring -[https]-> banking.producer 'scrape /metrics'
+  monitoring -[https]-> banking.nats 'nats-exporter :7777'
 
-  banking.monitoring -[http]-> banking.auth 'scrape /metrics (15s)'
-  banking.monitoring -[http]-> banking.account 'scrape /metrics (15s)'
-  banking.monitoring -[http]-> banking.transfer 'scrape /metrics (15s)'
-  banking.monitoring -[http]-> banking.notify 'scrape /metrics (15s)'
-  banking.monitoring -[http]-> banking.producer 'scrape /metrics (15s)'
-  banking.monitoring -[http]-> banking.nats 'scrape :8222 (nats-exporter)'
+  instana -[oltp_grpc]-> banking.auth 'OTLP :4317'
+  instana -[oltp_grpc]-> banking.account 'OTLP :4317'
+  instana -[oltp_grpc]-> banking.transfer 'OTLP :4317'
+  instana -[oltp_grpc]-> banking.notify 'OTLP :4317'
+  instana -[oltp_grpc]-> banking.producer 'OTLP :4317'
 
-  instana -[http]-> banking.auth 'OTLP/gRPC :4317'
-  instana -[http]-> banking.account 'OTLP/gRPC :4317'
-  instana -[http]-> banking.transfer 'OTLP/gRPC :4317'
-  instana -[http]-> banking.notify 'OTLP/gRPC :4317'
-  instana -[http]-> banking.producer 'OTLP/gRPC :4317'
+  banking.ci -[push_image]-> github 'reads source'
+  banking.ci -[push_image]-> ghcr 'push images'
+  github -[gitops]-> argocd 'helm/ chart'
+  ghcr -[push_image]-> argocd 'pull images'
+  argocd -[gitops]-> banking 'sync manifests'
 
-  banking.ci -[deploy]-> github 'reads source'
-  banking.ci -[deploy]-> ghcr 'pushes images'
-  github -[sync-gitops]-> argocd 'watches helm/ chart'
-  ghcr -[deploy]-> argocd 'pulls images'
-  argocd -[deploy]-> banking 'syncs manifests (prune + selfHeal)'
+  duckdns -[https]-> banking.caddy 'A-record→public IP'
 
-  duckdns -[http]-> banking.caddy 'A-record → public IP'
+  operator -[gitops]-> argocd 'apply Applications'
 
-  operator -[deploy]-> argocd 'applies Applications'
-
-  infraRepo -[provisions]-> banking 'Terraform EC2 + Ansible K8s'
-  infraRepo -[deploy]-> argocd 'installs ArgoCD + applies Application'
+  infra_repo -[provision]-> banking 'Terraform + Ansible'
+  infra_repo -[provision]-> argocd 'install ArgoCD'
 }
