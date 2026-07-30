@@ -19,7 +19,7 @@ GitOps deployment via ArgoCD. Zero-trust SSH bastion via Warpgate.
       color muted
       opacity 30%
       border dashed
-      include github, ghcr, duckdns, letsencrypt, instana
+      include github, ghcr, duckdns, instana
     }
     group 'Infrastructure' {
       color bank_indigo

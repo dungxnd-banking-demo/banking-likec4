@@ -6,8 +6,7 @@ model {
 
   // ── External entry ──
   customer -[https]-> k8s_platform.caddy 'opens app'
-  duckdns -[https]-> k8s_platform.caddy 'A-record→public IP'
-  letsencrypt -[acme]-> k8s_platform.caddy 'HTTP-01 challenge'
+  duckdns -> k8s_platform.caddy 'A-record→public IP'
 
   // ── Platform → App routing ──
   k8s_platform.caddy -[https]-> banking.kong 'all routes'
@@ -19,6 +18,13 @@ model {
   // ── Platform internals ──
   k8s_platform.control_plane -> k8s_platform.cilium 'pod networking'
   k8s_platform.argocd -[gitops]-> banking 'sync Helm chart'
+
+  // ── Audit pipeline ──
+  k8s_platform.control_plane -> k8s_platform.audit.audit_policy 'logs to /var/log/kubernetes/audit/'
+  k8s_platform.audit.audit_policy -> k8s_platform.audit.vector 'tail + ship events'
+  k8s_platform.audit.vector -> k8s_platform.audit.parseable 'HTTP (basic auth)'
+  k8s_platform.audit.parseable -> k8s_platform.audit.seaweedfs 'S3 API'
+  k8s_platform.caddy -> k8s_platform.audit.parseable 'secure UI proxy'
 
   // ── Kong routes by path ──
   banking.kong -[https]-> banking.frontend 'path: `/`'

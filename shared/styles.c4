@@ -1,6 +1,6 @@
 global {
 
-  style mute_externals github, ghcr, duckdns, letsencrypt, instana {
+  style mute_externals github, ghcr, duckdns, instana {
     color muted
     opacity 60%
   }

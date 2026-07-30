@@ -71,13 +71,6 @@ specification {
     title 'OTLP/gRPC'
     description 'OpenTelemetry Protocol — traces, metrics via OTLP/gRPC on :4317.'
   }
-  relationship acme {
-    line dotted;
-    color green;
-    head normal;
-    title 'ACME'
-    description 'Let\'s Encrypt ACME HTTP-01 challenge for TLS certificate automation.'
-  }
   relationship scan {
     line dotted;
     color amber;

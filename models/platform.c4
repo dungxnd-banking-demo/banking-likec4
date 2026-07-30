@@ -32,13 +32,14 @@ model {
       description '''
 Pinned to control-plane node (nodeSelector + tolerates taint).
 Uses **hostPort 80/443/2222** — no Ingress, no LoadBalancer, no NodePort.
-TLS via Let\'s Encrypt (HTTP-01 challenge).
+Auto-manages TLS via Caddy (built-in ACME client).
 
 Reverse-proxies to:
 - Kong (ClusterIP, app traffic)
 - Warpgate admin UI + SSH proxy
+- Parseable audit UI
 '''
-      metadata { ports 'hostPort 80, 443, 2222'; tls 'Let\'s Encrypt HTTP-01' }
+      metadata { ports 'hostPort 80, 443, 2222'; tls 'Caddy ACME (auto)' }
     }
 
     sg = system 'Security Group' {
@@ -47,10 +48,33 @@ Reverse-proxies to:
       description 'Two-phase ruleset: provisioning (SSH:22 + kube-api:6443 from admin CIDR) → lockdown (only 80/443/2222 from 0.0.0.0/0). All node-to-node traffic allowed (self-ref rule).'
     }
 
-    audit = system 'Audit Policy' {
+    audit = system 'Audit Pipeline' {
       #security
-      technology 'CIS-aligned'
-      description 'kube-apiserver audit logging at /var/log/kubernetes/audit/. RequestResponse level for pods/deployments/netpols/RBAC/admission. Metadata only for secrets/configmaps. 30-day rotation.'
+      technology 'CIS-aligned · Vector · Parseable · SeaweedFS'
+      description 'End-to-end audit: kube-apiserver CIS policy → Vector log shipper (DaemonSet) → Parseable log store → SeaweedFS S3 backend (10Gi PV). Accessible via Caddy for secure UI browsing.'
+
+      audit_policy = system 'Audit Policy' {
+        #security
+        technology 'CIS-aligned · kube-apiserver'
+        description 'RequestResponse level: pods, deployments, statefulsets, networkpolicies, RBAC, admission. Metadata only: secrets, configmaps. 30-day rotation, 5 backups, 100MB per file.'
+      }
+
+      vector = system 'Vector' {
+        technology 'DaemonSet · log shipper'
+        description 'Tails /var/log/kubernetes/audit/*.log. Parses JSON, ships to Parseable via HTTP with basic auth, gzip compression, batching. Pinned to control-plane node.'
+        style { icon https://cdn.simpleicons.org/vector }
+      }
+
+      parseable = system 'Parseable' {
+        technology 'log store · S3-compatible'
+        description 'Log storage and query engine. Receives audit events from Vector, stores to SeaweedFS S3 backend. Accessible via Caddy for secure UI browsing.'
+      }
+
+      seaweedfs = system 'SeaweedFS' {
+        technology 'S3-compatible · 10Gi PV'
+        description 'Distributed object storage backend for Parseable. StatefulSet with 10Gi PVC via local-path provisioner. S3 API endpoint.'
+        style { shape storage }
+      }
     }
 
     warpgate = bastion 'Warpgate' {

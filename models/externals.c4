@@ -18,13 +18,8 @@ model {
 
   duckdns = externalSystem 'DuckDNS' {
     technology 'Dynamic DNS'
-    description 'systemd service on master node. Polls public IP via IMDSv2, updates A-record on change. Enables Let\'s Encrypt TLS without static IP or ELB.'
+    description 'systemd service on master node. Polls public IP via IMDSv2, updates A-record on change. Enables TLS via dynamic DNS without static IP or ELB.'
     style { icon https://www.duckdns.org/img/ducky_icon_small.png }
-  }
-
-  letsencrypt = externalSystem 'Let\'s Encrypt' {
-    technology 'ACME'
-    description 'HTTP-01 challenge on port 80. Caddy auto-obtains wildcard cert. Zero-cost TLS.'
   }
 
   instana = externalSystem 'Instana' {

@@ -4,7 +4,7 @@ deployment {
   extend aws.vpc.master {
     caddyInstance = instanceOf k8s_platform.caddy {
       title 'Caddy (hostPort 80/443/2222)'
-      description 'Pinned via nodeSelector. Handles all external traffic. Reverse-proxies to Kong (app), Warpgate (admin UI + SSH). Holds Let\'s Encrypt certs.'
+      description 'Pinned via nodeSelector. Handles all external traffic. Reverse-proxies to Kong (app), Warpgate (admin UI + SSH). Auto-manages TLS via Caddy.'
     }
     argoInstance = instanceOf k8s_platform.argocd {
       title 'ArgoCD Server'
