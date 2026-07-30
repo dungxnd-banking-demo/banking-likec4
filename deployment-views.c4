@@ -1,12 +1,11 @@
 views {
 
   deployment view deployment-infra {
-    title "AWS Infrastructure — EC2 + K8s Cluster"
+    title 'AWS Infrastructure — 4-node K8s Cluster'
     description """
-        **4-node Kubernetes cluster on AWS EC2 (ap-southeast-1).**
+        **Spot EC2 instances in ap-southeast-1 default VPC.**
 
-        1 master + 2 workers + 1 warpgate node. Cilium CNI with kube-proxy replacement.
-        Caddy handles all external ingress on hostPort 80/443/2222.
+        Master (t3a.medium): control-plane, Caddy hostPort, ArgoCD. Workers (t3a.medium): app pods. Warpgate (t3a.small): zero-trust bastion, tainted NoSchedule. Cilium CNI kube-proxy replacement. Ansible: os-hardening → containerd → kubeadm → Cilium → ArgoCD → banking-demo Application.
         """
 
     include aws.vpc.*
@@ -18,12 +17,9 @@ views {
   }
 
   deployment view deployment-app-pods {
-    title "Application Pods — Distribution Across Workers"
+    title 'Application Pods — Worker Distribution'
     description """
-        **How banking containers are distributed across the 2 worker nodes.**
-
-        Worker-1: Frontend, Kong, api-producer, NATS (entry + messaging layer).
-        Worker-2: All consumer services, PostgreSQL, Redis (processing + data layer).
+        Worker-1: entry + messaging — Frontend, Kong, api-producer, NATS. Worker-2: services + data — auth, account, transfer, notification, PostgreSQL, Redis. podAntiAffinity, initContainers (wait-for-postgres/nats), default-deny NetworkPolicy with 7 allow-lists.
         """
 
     include
@@ -37,12 +33,9 @@ views {
   }
 
   deployment view deployment-security {
-    title "Security Posture — Post-Lockdown"
+    title 'Security Posture — Post-Lockdown'
     description """
-        **After make all completes, the bridge is burned.**
-
-        Only ports 80 (HTTP), 443 (HTTPS), and 2222 (Warpgate SSH proxy) are open from 0.0.0.0/0.
-        Direct SSH(22) and kube-apiserver(6443) are closed. Management through Warpgate only.
+        **After make all: SSH(22) + kube-apiserver(6443) closed.** Only 80/443 (Caddy) and 2222 (Warpgate SSH proxy) open from 0.0.0.0/0. kubectl through Warpgate with session audit logging. kube-apiserver audit policy applied via kubeadm strategic merge patch.
         """
 
     include aws.vpc.master, aws.vpc.warpgateNode, aws.vpc.worker1, aws.vpc.worker2
@@ -60,13 +53,11 @@ views {
   }
 
   deployment view deployment-audit {
-    title "Audit Logging Pipeline"
+    title 'Audit Logging Pipeline'
     description """
-        **Kube-apiserver audit logs → Vector → Parseable → SeaweedFS.**
+        **kube-apiserver audit logs → Vector → Parseable → SeaweedFS.**
 
-        Vector (DaemonSet on master) reads /var/log/kubernetes/audit/*.log via hostPath,
-        ships JSON-parsed records to Parseable (columnar log store, SQL UI).
-        Parseable stores as Parquet on SeaweedFS (S3-compatible, 10Gi PVC).
+        Vector (DaemonSet on master, timberio/vector:0.45.0-distroless-libc) reads /var/log/kubernetes/audit/*.log via hostPath, JSON-parses, HTTP POSTs to Parseable. Parseable (columnar log store, SQL UI, Parquet) → SeaweedFS (S3-compatible, 10Gi PVC). Optional Caddy route for Parseable UI. Disabled by default (audit.enabled=false).
         """
 
     include aws.vpc.master

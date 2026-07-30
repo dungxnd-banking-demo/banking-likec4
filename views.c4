@@ -1,14 +1,12 @@
 views {
 
-  // ── 1. System Landscape (C4 Level 1) — unscoped, uses FQN ──
   view index {
     title 'System Landscape'
-    description '''
+    description """
         **C4 Level 1 — System Context**
 
-        High-level view showing all actors, external systems, and the Banking System.
-        The Banking System is a full-stack event-driven banking application deployed on Kubernetes on AWS EC2.
-        '''
+        High-level view of the Banking Demo ecosystem. The Banking System is a Go/React event-driven banking application deployed on K8s (EC2). Infrastructure provisioned by Terraform + Ansible from bankind-demo-infra. ArgoCD syncs the Helm chart from banking-demo-gitops.
+        """
     link https://github.com/dungxnd-banking-demo/banking-demo-revamp
 
     include
@@ -17,13 +15,10 @@ views {
       github,
       ghcr,
       duckdns,
+      instana,
       banking,
-      infraRepo
-
-    // Top-level relationships only
-    include customer -> banking
-    include duckdns -> banking
-    include infraRepo -> banking
+      infraRepo,
+      argocd
 
     style banking {
       color bank-green
@@ -31,17 +26,18 @@ views {
     style infraRepo {
       color bank-indigo
     }
+    style argocd {
+      color sky
+    }
   }
 
-  // ── 2. Banking System — Container View (C4 Level 2) ──
   view banking-system of banking {
     title 'Banking System — Containers'
-    description '''
+    description """
         **C4 Level 2 — Container View**
 
-        All containers (deployable units) inside the Banking System.
-        Requests flow: Customer → Caddy → Frontend / Kong → api-producer → NATS → consumer services → PostgreSQL / Redis.
-        '''
+        All 17 containers. Request flow: Browser → Caddy (TLS) → Kong (ClusterIP) → api-producer (Go/chi) → NATS RPC → 4 consumer services → PostgreSQL + Redis. WebSocket bypasses NATS: Kong → notification-service directly.
+        """
 
     include *
 
@@ -75,7 +71,7 @@ views {
     group 'Entry Layer' {
       include caddy, frontend
     }
-    group 'API Gateway' {
+    group 'Gateway + Bridge' {
       include kong, producer
     }
     group 'Message Bus' {
@@ -89,19 +85,14 @@ views {
     }
   }
 
-  // ── 3. API Request Flow ──
   view api-request-flow of banking {
     title 'API Request Flow'
-    description '''
-        **How a REST API request flows through the system.**
+    description """
+        **How an HTTP API call flows through the system.**
 
-        1. Browser → Caddy (HTTPS, TLS termination)
-        2. Caddy → Kong (ClusterIP)
-        3. Kong → api-producer (HTTP)
-        4. api-producer → NATS RPC → consumer service
-        5. Response flows back via NATS inbox → api-producer → Kong → Caddy → Browser
-        '''
-    link https://github.com/dungxnd-banking-demo/banking-demo-revamp/blob/main/ARCH-NATS-RPC.md
+        Path mapping: `POST /api/transfers` → `banking.transfer.transfer` via exact-match switch in producer/handlers.go. Auth headers (X-Session, X-Admin-Secret) travel as NATS message headers, not in JSON body. W3C traceparent injected. Nats-Trace-Dest sampled at 1% for server-level tracing.
+        """
+    link https://github.com/dungxnd-banking-demo/banking-demo-revamp/blob/main/producer/handlers.go
 
     include
       customer,
@@ -128,15 +119,14 @@ views {
     }
   }
 
-  // ── 4. NATS Subject Hierarchy ──
   view nats-subjects of banking {
     title 'NATS Subject Hierarchy'
-    description '''
-        **NATS subjects used for request/reply (Core NATS) and events (JetStream).**
+    description """
+        **RPC subjects (Core NATS) + JetStream events.**
 
-        Each consumer service registers as a nats/micro service with per-action endpoints.
-        Auth headers (x-session, x-admin-secret) travel as NATS message headers.
-        '''
+        Each consumer registers as a nats/micro service with per-action endpoints using full subject as queue group. Auth headers travel as NATS message headers. JetStream events published with Nats-Msg-Id:{transferID} for dedup.
+        """
+    link https://github.com/dungxnd-banking-demo/banking-demo-revamp/blob/main/ARCH-NATS-RPC.md
 
     include nats, auth, account, transfer, notify, jets
 
@@ -148,16 +138,17 @@ views {
     }
   }
 
-  // ── 5. Transfer Flow — CQRS Detail ──
   view transfer-flow of banking {
     title 'Transfer Flow — CQRS'
-    description '''
-        **How a money transfer works with CQRS.**
+    description """
+        **Money transfer with three-tier CQRS.**
 
-        **Tier 1 (DB):** Atomic PostgreSQL transaction — debit, credit, insert transfers + notifications.
-        **Tier 2 (Redis cache):** Post-commit pipeline — DEL user_cache, HSET balance, PUBLISH notify.
-        **Tier 3 (JetStream):** Publish banking.events.transfer.completed with Nats-Msg-Id dedup.
-        '''
+        **Tier 1 (DB):** `SerializableTx` with jitter retry (up to 5x). Determistic lock ordering: `SELECT FOR UPDATE WHERE id IN (?,?) ORDER BY id`. Single UPDATE with CASE WHEN for balances. Atomic insert of transfer + 2 notifications.
+
+        **Tier 2 (Redis):** Post-commit pipeline in ONE round-trip: `DEL user_cache:phone`, `HSET balance {sender}`, `HSET balance {receiver}`, `PUBLISH notify:{receiver}`.
+
+        **Tier 3 (JetStream):** `PublishMsg` with `Nats-Msg-Id:{transferID}` header. Account-service durable pull consumer replays on cold start to rebuild balance hash without DB reads.
+        """
     link https://github.com/dungxnd-banking-demo/banking-demo-revamp/blob/main/MICROSERVICES.md
 
     include
@@ -189,10 +180,10 @@ views {
       color sky
     }
 
-    group 'Tier 1 — DB Transaction' {
+    group 'Tier 1 — SerializableTx' {
       include transfer, postgres
     }
-    group 'Tier 2 — Redis Cache Pipeline' {
+    group 'Tier 2 — Redis Pipeline' {
       include redis
     }
     group 'Tier 3 — JetStream Event Log' {
@@ -203,15 +194,15 @@ views {
     }
   }
 
-  // ── 6. Data Layer ──
   view data-layer of banking {
     title 'Data Layer'
-    description '''
+    description """
         **PostgreSQL schema and Redis key space.**
 
-        PostgreSQL: users, transfers, notifications tables.
-        Redis: session:{sid} (24h), user_cache:phone (5min), balance hash, notify:{uid} pub/sub.
-        '''
+        PostgreSQL: users (BIGINT PK, phone/account_number/username UNIQUE, balance ≥ 0), transfers (BIGINT, FK, amount > 0, composite indexes), notifications (BIGINT, FK, is_read). Migrated via golang-migrate in 3 steps.
+
+        Redis: sessions (24h), user_cache (5min, DEL'd post-transfer), balance hash (CQRS read model, no TTL), presence (60s, WS heartbeat), notify:{uid} pub/sub channel.
+        """
 
     include auth, account, transfer, notify, postgres, redis
 
@@ -223,15 +214,13 @@ views {
     }
   }
 
-  // ── 7. Observability Stack ──
   view observability-stack of banking {
     title 'Observability Stack'
-    description '''
-        **Three pillars: structured JSON logs, Prometheus metrics, OpenTelemetry distributed tracing.**
+    description """
+        **Three pillars: structured JSON logs (slog), Prometheus metrics, OpenTelemetry distributed tracing.**
 
-        Every service emits structured JSON logs to stdout and exposes /metrics.
-        OTLP/gRPC spans flow to self-hosted OTel Collector or Instana agent.
-        '''
+        All services expose /metrics via promhttp, emit JSON logs to stdout (slog), and export OTLP/gRPC traces (→ Instana agent or OTel Collector). NATS micro provides per-endpoint stats. nginx has ngx_otel_module. Instana Go Collector instruments pgxpool and go-redis.
+        """
 
     include
       auth,
@@ -258,17 +247,16 @@ views {
     }
   }
 
-  // ── 8. GitOps CI/CD Pipeline ──
   view gitops-pipeline of banking {
     title 'GitOps CI/CD Pipeline'
-    description '''
+    description """
         **Three repos, one pipeline.**
 
-        1. banking-demo-revamp: Source code + CI (build & push to GHCR)
-        2. CI bumps image tags in banking-demo-gitops/helm/values.yaml
-        3. ArgoCD detects the diff and auto-syncs the cluster
-        4. bankind-demo-infra: Provisioned the EC2 VMs + K8s + ArgoCD
-        '''
+        1. banking-demo-revamp: GitHub Actions builds Go (GOWORK=off) + React (node:24→nginx:alpine) images, pushes to GHCR
+        2. CI bumps image tags in banking-demo-gitops/helm/values.yaml (Stage 3)
+        3. ArgoCD detects diff → auto-syncs (prune + selfHeal, 3-retry backoff)
+        4. bankind-demo-infra: Terraform (spot EC2, SG) + Ansible (os-hardening, containerd, kubeadm, Cilium, ArgoCD install)
+        """
 
     include ci, argocd
 
@@ -280,17 +268,17 @@ views {
     }
   }
 
-  // ── 9. Redis Key Space & CQRS ──
   view redis-keyspace of banking {
     title 'Redis Key Space & CQRS'
-    description '''
-        **How Redis keys are used for CQRS.**
+    description """
+        **How Redis enables CQRS and real-time notifications.**
 
-        - session:{sid} → session token → user ID lookup
-        - user_cache:phone → login fast-path (DEL\'d on transfer)
-        - balance hash → CQRS read model (HSET by transfer, read by account)
-        - notify:{uid} pub/sub → real-time transfer events
-        '''
+        - `session:{sid}` → user ID lookup (all services, 24h TTL)
+        - `user_cache:{phone}` → login fast-path (auth writes, transfer DEL's on commit, 5min TTL)
+        - `balance` hash → CQRS read model (transfer HSET, account HGet O(1) → DB fallback + backfill)
+        - `notify:{uid}` pub/sub → transfer PUBLISH, notify SUBSCRIBE → WebSocket JSON frame push
+        - `presence:{uid}` → online status heartbeat at TTL/3 interval
+        """
     include redis, auth, account, transfer, notify
 
     style redis {
