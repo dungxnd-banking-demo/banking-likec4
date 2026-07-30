@@ -16,6 +16,8 @@ model {
   k8s_platform.caddy -> k8s_platform.warpgate 'admin UI + SSH'
 
   // ── Platform internals ──
+  k8s_platform.control_plane -> k8s_platform.containerd 'CRI'
+  k8s_platform.containerd -> k8s_platform.cilium 'CNI'
   k8s_platform.control_plane -> k8s_platform.cilium 'pod networking'
   k8s_platform.argocd -[gitops]-> banking 'sync Helm chart'
 

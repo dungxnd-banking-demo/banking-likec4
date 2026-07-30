@@ -1,8 +1,14 @@
 model {
 
   k8s_platform = system 'K8s Platform' {
-    description '4-node K8s cluster on AWS EC2 (ap-southeast-1). Single subnet, Cilium eBPF CNI, Rancher Local Path Provisioner, phased Security Group. Ansible 9-play bootstrapping.'
+    description '4-node K8s cluster on AWS EC2 (ap-southeast-1). containerd runtime, Cilium eBPF CNI, Rancher Local Path Provisioner, phased Security Group. Ansible 9-play bootstrapping.'
     style { icon tech:kubernetes }
+
+    containerd = system 'containerd' {
+      technology 'CRI · v2.2'
+      description 'Container runtime installed via apt on all 4 nodes. Manages image pulling, container lifecycle, and sandboxing. CRI plugin with Cilium as the CNI provider.'
+      style { icon tech:docker }
+    }
 
     control_plane = system 'Control Plane' {
       description 'kube-apiserver (CIS audit logging), etcd, kube-controller-manager, kube-scheduler. All static pods on master node.'
@@ -57,18 +63,19 @@ Reverse-proxies to:
     vector = system 'Vector' {
       technology 'DaemonSet · log shipper'
       description 'Tails /var/log/kubernetes/audit/*.log. Parses JSON, ships to Parseable via HTTP with basic auth, gzip compression, batching. Pinned to control-plane node.'
-      style { icon https://cdn.simpleicons.org/vector }
+      style { icon https://avatars.githubusercontent.com/u/16866914?v=4 }
     }
 
     parseable = system 'Parseable' {
       technology 'log store · S3-compatible'
       description 'Log storage and query engine. Receives audit events from Vector, stores to SeaweedFS S3 backend. Accessible via Caddy for secure UI browsing.'
+      style { icon https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/webp/parseable.webp }
     }
 
     seaweedfs = system 'SeaweedFS' {
       technology 'S3-compatible · 10Gi PV'
       description 'Distributed object storage backend for Parseable. StatefulSet with 10Gi PVC via local-path provisioner. S3 API endpoint.'
-      style { shape storage }
+      style { shape storage; icon https://raw.githubusercontent.com/seaweedfs/seaweedfs/master/note/seaweedfs.png }
     }
 
     warpgate = bastion 'Warpgate' {

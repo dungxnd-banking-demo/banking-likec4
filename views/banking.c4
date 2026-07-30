@@ -12,13 +12,6 @@ views 'Architecture' {
 Backend services communicate over NATS RPC. PostgreSQL + Redis StatefulSets with PVs.
 '''
 
-    rank same { k8s_platform.caddy }
-    rank same { banking.kong }
-    rank same { banking.frontend, banking.producer }
-    rank same { banking.nats, banking.jets }
-    rank same { banking.auth, banking.account, banking.transfer, banking.notify }
-    rank same { banking.postgres, banking.redis }
-
     autoLayout LeftRight 120 100
 
     global style theme_banking
@@ -59,6 +52,13 @@ Backend services communicate over NATS RPC. PostgreSQL + Redis StatefulSets with
       border dashed
       include banking.postgres, banking.redis
     }
+
+    rank same { k8s_platform.caddy }
+    rank same { banking.kong }
+    rank same { banking.frontend, banking.producer }
+    rank same { banking.nats, banking.jets }
+    rank same { banking.auth, banking.account, banking.transfer, banking.notify }
+    rank same { banking.postgres, banking.redis }
 
     style k8s_platform.caddy { color bank_green }
   }

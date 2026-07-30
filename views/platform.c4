@@ -12,6 +12,7 @@ views 'Architecture' {
     autoLayout LeftRight 120 100
 
     style control_plane { color primary }
+    style containerd { color muted }
     style cilium { color sky }
     style local_path { color secondary }
     style caddy { color bank_green }
