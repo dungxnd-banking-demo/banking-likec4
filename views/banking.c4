@@ -3,7 +3,7 @@ views 'Architecture' {
   // ═══════════════════════════════════════════════════
   //  Banking Application — Container View
   // ═══════════════════════════════════════════════════
-  view banking_system {
+  view banking_system of banking {
     title 'Containers / Banking Application'
     description '''
 **13 containers.** Traffic: Caddy(TLS, hostPort) → Kong(ClusterIP) → routes by path:
@@ -24,46 +24,34 @@ Backend services communicate over NATS RPC. PostgreSQL + Redis StatefulSets with
       color bank_indigo
       opacity 20%
       border dashed
-      include banking.kong, banking.frontend
+      include kong, frontend
     }
     group 'Bridge' {
       color primary
       opacity 20%
       border dashed
-      include banking.producer
+      include producer
     }
     group 'Message Bus' {
       color sky
       opacity 20%
       border dashed
-      include banking.nats, banking.jets
+      include nats, jets
     }
     group 'Consumers (Go)' {
       color amber
       opacity 15%
       border dashed
-      include banking.auth, banking.account, banking.transfer, banking.notify
+      include auth, account, transfer, notify
     }
     group 'Data' {
       color secondary
       opacity 20%
       border dashed
-      include banking.postgres, banking.redis
+      include postgres, redis
     }
 
-    style k8s_platform.caddy { color bank_green }
-    style banking.kong { color bank_indigo }
-    style banking.nats, banking.jets { color sky }
-    style banking.auth, banking.account, banking.transfer, banking.notify { color amber }
-    style banking.postgres { color secondary }
-    style banking.redis { color red }
-
-    rank same { k8s_platform.caddy }
-    rank same { banking.kong }
-    rank same { banking.frontend, banking.producer }
-    rank same { banking.nats, banking.jets }
-    rank same { banking.auth, banking.account, banking.transfer, banking.notify }
-    rank same { banking.postgres, banking.redis }
+    global style theme_banking
   }
 
 }
