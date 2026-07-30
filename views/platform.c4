@@ -19,7 +19,6 @@ views 'Architecture' {
     style warpgate { color bank_red }
     style sg { color gray }
     style netpol { color gray }
-    style audit { color gray }
     style audit_policy { color muted }
     style vector { color amber }
     style parseable { color amber }

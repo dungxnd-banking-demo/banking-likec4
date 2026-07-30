@@ -20,11 +20,11 @@ model {
   k8s_platform.argocd -[gitops]-> banking 'sync Helm chart'
 
   // ── Audit pipeline ──
-  k8s_platform.control_plane -> k8s_platform.audit.audit_policy 'logs to /var/log/kubernetes/audit/'
-  k8s_platform.audit.audit_policy -> k8s_platform.audit.vector 'tail + ship events'
-  k8s_platform.audit.vector -> k8s_platform.audit.parseable 'HTTP (basic auth)'
-  k8s_platform.audit.parseable -> k8s_platform.audit.seaweedfs 'S3 API'
-  k8s_platform.caddy -> k8s_platform.audit.parseable 'secure UI proxy'
+  k8s_platform.control_plane -> k8s_platform.audit_policy 'logs to /var/log/kubernetes/audit/'
+  k8s_platform.audit_policy -> k8s_platform.vector 'tail + ship events'
+  k8s_platform.vector -> k8s_platform.parseable 'HTTP (basic auth)'
+  k8s_platform.parseable -> k8s_platform.seaweedfs 'S3 API'
+  k8s_platform.caddy -> k8s_platform.parseable 'secure UI proxy'
 
   // ── Kong routes by path ──
   banking.kong -[https]-> banking.frontend 'path: `/`'
