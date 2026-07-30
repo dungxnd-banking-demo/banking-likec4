@@ -14,8 +14,6 @@ Backend services communicate over NATS RPC. PostgreSQL + Redis StatefulSets with
 
     autoLayout LeftRight 120 100
 
-    global style theme_banking
-
     group 'Ingress' {
       color bank_green;
       opacity 25%;
@@ -52,6 +50,8 @@ Backend services communicate over NATS RPC. PostgreSQL + Redis StatefulSets with
       border dashed
       include banking.postgres, banking.redis
     }
+
+    global style theme_banking
 
     rank same { k8s_platform.caddy }
     rank same { banking.kong }
