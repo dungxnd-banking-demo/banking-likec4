@@ -3,27 +3,56 @@ views 'Architecture' {
   // ═══════════════════════════════════════════════════
   //  K8s Platform — internals
   // ═══════════════════════════════════════════════════
-  view platform_internals of k8s_platform {
+  view platform_internals {
     title 'Containers / K8s Platform Internals'
-    description 'Control plane, CNI, storage, GitOps controller, edge proxy, audit pipeline, security layers. All deployed by Ansible 9-play site.yml.'
-
-    include *
+    description 'CRI, CNI, storage, GitOps controller, edge proxy, audit pipeline, security layers. All deployed by Ansible 9-play site.yml.'
 
     autoLayout LeftRight 120 100
 
-    style control_plane { color primary }
-    style containerd { color muted }
-    style cilium { color sky }
-    style local_path { color secondary }
-    style caddy { color bank_green }
-    style argocd { color sky }
-    style warpgate { color bank_red }
-    style sg { color gray }
-    style netpol { color gray }
-    style audit_policy { color muted }
-    style vector { color amber }
-    style parseable { color amber }
-    style seaweedfs { color secondary }
+    group 'Runtime' {
+      color primary
+      opacity 20%
+      border dashed
+      include k8s_platform.control_plane, k8s_platform.containerd
+    }
+    group 'Networking + Storage' {
+      color secondary
+      opacity 20%
+      border dashed
+      include k8s_platform.cilium, k8s_platform.local_path
+    }
+    group 'Edge + GitOps' {
+      color bank_green
+      opacity 20%
+      border dashed
+      include k8s_platform.caddy, k8s_platform.argocd
+    }
+    group 'Audit Pipeline' {
+      color amber
+      opacity 20%
+      border dashed
+      include k8s_platform.audit_policy, k8s_platform.vector, k8s_platform.parseable, k8s_platform.seaweedfs
+    }
+    group 'Security' {
+      color bank_red
+      opacity 20%
+      border dashed
+      include k8s_platform.sg, k8s_platform.warpgate, k8s_platform.netpol
+    }
+
+    style k8s_platform.control_plane { color primary }
+    style k8s_platform.containerd { color muted }
+    style k8s_platform.cilium { color sky }
+    style k8s_platform.local_path { color secondary }
+    style k8s_platform.caddy { color bank_green }
+    style k8s_platform.argocd { color sky }
+    style k8s_platform.warpgate { color bank_red }
+    style k8s_platform.sg { color gray }
+    style k8s_platform.netpol { color gray }
+    style k8s_platform.audit_policy { color muted }
+    style k8s_platform.vector { color amber }
+    style k8s_platform.parseable { color amber }
+    style k8s_platform.seaweedfs { color secondary }
   }
 
 }
