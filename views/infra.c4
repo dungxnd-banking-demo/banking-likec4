@@ -10,6 +10,7 @@ views 'Deployment' {
 3 × t3a.medium (2 vCPU, 4 GiB) + 1 × t3a.small (2 vCPU, 2 GiB).
 All spot instances, 20 GB gp3 root, single AZ, single public subnet.
 Cilium eBPF mesh — every node connects to every node.
+SG: two-phase (provisioning: SSH:22 + kube-api:6443 → lockdown: only 80/443/2222).
 '''
 
     include aws.vpc.*
@@ -39,18 +40,4 @@ Cilium eBPF mesh — every node connects to every node.
     style aws.vpc.worker2 { color amber }
   }
 
-  // ═══════════════════════════════════════════════════
-  //  Post-Lockdown Security
-  // ═══════════════════════════════════════════════════
-  deployment view deployment_security {
-    title 'Security / Post-Lockdown'
-    description 'After `make lockdown`: SSH(22) + kube-api(6443) closed. Only 80/443 (Caddy) + 2222 (Warpgate SSH) open to internet. All management via `ssh -p 2222`. Warpgate on dedicated node with NoSchedule taint.'
-
-    include aws.vpc.master, aws.vpc.warpgate, aws.vpc.worker1, aws.vpc.worker2
-    includeAncestors: true
-
-    style aws { color bank_indigo }
-    style aws.vpc.master { color bank_green }
-    style aws.vpc.warpgate { color bank_red }
-  }
 }

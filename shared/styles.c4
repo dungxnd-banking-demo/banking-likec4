@@ -1,0 +1,20 @@
+global {
+
+  style mute_externals github, ghcr, duckdns, letsencrypt, instana {
+    color muted
+    opacity 60%
+  }
+
+  styleGroup theme_banking {
+    style banking.nats, banking.jets { color sky }
+    style banking.kong { color bank_indigo }
+    style banking.auth, banking.account, banking.transfer, banking.notify { color amber }
+    style banking.postgres { color secondary }
+    style banking.redis { color red }
+    style monitoring { color bank_green }
+    style k8s_platform.argocd { color sky }
+    style infra_repo { color bank_indigo }
+    style devsecops { color amber }
+  }
+
+}

@@ -1,0 +1,9 @@
+specification {
+
+  // ── Colors ──
+  color bank_green #2e7d32
+  color bank_indigo #283593
+  color bank_amber #f57c00
+  color bank_red #c62828
+
+}

@@ -1,0 +1,24 @@
+views 'Architecture' {
+
+  // ═══════════════════════════════════════════════════
+  //  K8s Platform — internals
+  // ═══════════════════════════════════════════════════
+  view platform_internals of k8s_platform {
+    title 'Containers / K8s Platform Internals'
+    description 'Control plane, CNI, storage, GitOps controller, edge proxy, security layers. All deployed by Ansible 9-play site.yml.'
+
+    include *
+    autoLayout LeftRight 120 100
+
+    style control_plane { color primary }
+    style cilium { color sky }
+    style local_path { color secondary }
+    style caddy { color bank_green }
+    style argocd { color sky }
+    style warpgate { color bank_red }
+    style sg { color gray }
+    style audit { color gray }
+    style netpol { color gray }
+  }
+
+}

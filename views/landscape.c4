@@ -1,0 +1,45 @@
+views 'Architecture' {
+
+  // ═══════════════════════════════════════════════════
+  //  System Landscape
+  // ═══════════════════════════════════════════════════
+  view index {
+    title 'Landscape / System Overview'
+    description '''
+**Banking Demo Platform** — 4-node K8s cluster on AWS EC2 (ap-southeast-1).
+Event-driven banking app, self-hosted observability, DevSecOps pipeline with 9 parallel security scans.
+GitOps deployment via ArgoCD. Zero-trust SSH bastion via Warpgate.
+'''
+
+    global style mute_externals
+
+    autoLayout LeftRight 150 100
+
+    group 'External Services' {
+      color muted
+      opacity 30%
+      border dashed
+      include github, ghcr, duckdns, letsencrypt, instana
+    }
+    group 'Infrastructure' {
+      color bank_indigo
+      opacity 25%
+      border dashed
+      include infra_repo
+    }
+    group 'Platform' {
+      color sky
+      opacity 20%
+      border dashed
+      include k8s_platform, banking, monitoring
+    }
+
+    include
+      customer,
+      operator
+
+    style k8s_platform { color bank_green }
+    style banking { color amber }
+  }
+
+}

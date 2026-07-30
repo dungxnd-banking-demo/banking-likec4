@@ -261,4 +261,5 @@ views 'Dynamic / DevSecOps' {
     k8s_platform.argocd -> banking 'sync manifests'
     banking -> k8s_platform.argocd 'healthy'
   }
+
 }

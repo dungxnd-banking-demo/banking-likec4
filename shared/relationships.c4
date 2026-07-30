@@ -1,0 +1,89 @@
+specification {
+
+  // ── Relationship kinds ──
+  relationship https {
+    line solid;
+    color secondary;
+    head normal;
+    title 'HTTPS'
+    description 'HTTP over TLS — browser traffic and service-to-service API calls.'
+  }
+  relationship nat_rpc {
+    line solid;
+    color green;
+    head diamond;
+    title 'NATS RPC'
+    description 'NATS Core request/reply with nats/micro queue groups.'
+  }
+  relationship jetstream_evt {
+    line dashed;
+    color amber;
+    head normal;
+    title 'JetStream'
+    description 'NATS JetStream durable event stream — 30-day retention with Nats-Msg-Id dedup.'
+  }
+  relationship websocket_cn {
+    line solid;
+    color sky;
+    head normal;
+    title 'WebSocket'
+    description 'Persistent WebSocket connection — real-time push notifications.'
+  }
+  relationship redis_cmd {
+    line dashed;
+    color red;
+    head normal;
+    title 'Redis'
+    description 'Redis commands — GET, SET, HSET, PUBLISH, pipeline operations.'
+  }
+  relationship sql_tx {
+    line solid;
+    color gray;
+    head normal;
+    title 'SQL'
+    description 'PostgreSQL queries and Serializable transactions via pgxpool.'
+  }
+  relationship gitops {
+    line solid;
+    color sky;
+    head diamond;
+    title 'GitOps Sync'
+    description 'ArgoCD automated sync — prune + selfHeal from Helm chart.'
+  }
+  relationship provision {
+    line dotted;
+    color muted;
+    head normal;
+    title 'Provision'
+    description 'Infrastructure provisioning — Terraform + Ansible playbooks.'
+  }
+  relationship push_image {
+    line dotted;
+    color muted;
+    head normal;
+    title 'Push Image'
+    description 'Docker build → push to GHCR, tag bump in gitops repo.'
+  }
+  relationship oltp_grpc {
+    line dotted;
+    color gray;
+    head normal;
+    title 'OTLP/gRPC'
+    description 'OpenTelemetry Protocol — traces, metrics via OTLP/gRPC on :4317.'
+  }
+  relationship acme {
+    line dotted;
+    color green;
+    head normal;
+    title 'ACME'
+    description 'Let\'s Encrypt ACME HTTP-01 challenge for TLS certificate automation.'
+  }
+  relationship scan {
+    line dotted;
+    color amber;
+    head normal;
+    title 'Scan'
+    description 'Security scanning — SAST, secrets, dependencies, misconfigurations.'
+  }
+
+}

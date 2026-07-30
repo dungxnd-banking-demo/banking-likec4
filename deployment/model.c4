@@ -1,0 +1,54 @@
+deployment {
+
+  aws = cloud 'AWS' {
+    title 'AWS ap-southeast-1'
+
+    vpc = vpc 'Default VPC' {
+      description '''
+Default VPC with a single public subnet.
+4 EC2 spot instances: 3 × t3a.medium + 1 × t3a.small.
+No NAT GW, no ELB — zero-cost networking.
+Single Security Group with two-phase ruleset.
+Cilium eBPF mesh — kube-proxy replacement, all node-to-node traffic.
+'''
+
+      sg = ec2 'Security Group' {
+        description '''
+Two-phase ruleset (toggle via `lockdown_enabled`):
+- Provisioning: SSH:22 + kube-api:6443 from admin CIDR
+- Lockdown: only 80/443/2222 from 0.0.0.0/0
+Node-to-node: all traffic allowed (self-ref rule).
+'''
+        technology 'AWS SG'
+      }
+
+      master = ec2 'Master Node' {
+        title 'master (t3a.medium)'
+        description 'K8s control-plane (kube-apiserver, etcd, scheduler, controller-manager). Caddy edge proxy (hostPort). ArgoCD server. kube-apiserver CIS audit logging. Cilium agent. DuckDNS systemd service.'
+        technology 'Ubuntu 26.04'
+        metadata { cpu '2 vCPU AMD EPYC'; ram '4 GiB'; disk '20 GB gp3' }
+      }
+
+      worker1 = ec2 'Worker Node 1' {
+        title 'worker-1 (t3a.medium)'
+        description 'Kong (ClusterIP), Frontend (nginx:alpine), api-producer (×2), NATS + JetStream (1Gi PVC), nats-exporter. Cilium agent. All pods: hard pod anti-affinity.'
+        technology 'Ubuntu 26.04'
+        metadata { cpu '2 vCPU AMD EPYC'; ram '4 GiB'; disk '20 GB gp3' }
+      }
+
+      worker2 = ec2 'Worker Node 2' {
+        title 'worker-2 (t3a.medium)'
+        description '4 Go services (auth, account, transfer, notification — ×2 each), PostgreSQL 18 (5Gi PV), Redis 8 (1Gi PV). Cilium agent. Hard pod anti-affinity.'
+        technology 'Ubuntu 26.04'
+        metadata { cpu '2 vCPU AMD EPYC'; ram '4 GiB'; disk '20 GB gp3' }
+      }
+
+      warpgate = ec2 'Warpgate Node' {
+        title 'warpgate (t3a.small)'
+        description 'Dedicated K8s worker — tainted `role=security:NoSchedule`. Warpgate SSH proxy (:2222), admin UI (:8888), K8s proxy (:8443). SQLite 10Gi PVC. Post-lockdown sole management entry. Cilium agent.'
+        technology 'Ubuntu 26.04'
+        metadata { cpu '2 vCPU AMD EPYC'; ram '2 GiB'; disk '20 GB gp3'; pvc '10Gi SQLite' }
+      }
+    }
+  }
+}

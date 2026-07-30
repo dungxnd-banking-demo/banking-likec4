@@ -1,18 +1,6 @@
 model {
 
   // ═══════════════════════════════════════════════════
-  //  ACTORS
-  // ═══════════════════════════════════════════════════
-
-  customer = person 'Customer' {
-    description 'End user. Opens the app, logs in, checks balance, sends money, receives real-time WebSocket notifications.'
-  }
-
-  operator = person 'Platform Engineer' {
-    description 'Runs `make all` from laptop. Terraform provisions EC2, Ansible bootstraps K8s, ArgoCD deploys app, Terraform locks down. Accesses cluster exclusively via Warpgate SSH on :2222 post-lockdown.'
-  }
-
-  // ═══════════════════════════════════════════════════
   //  EXTERNAL SYSTEMS
   // ═══════════════════════════════════════════════════
 
@@ -53,4 +41,5 @@ Ansible site.yml (9 plays): OS hardening → containerd → kubeadm → Cilium �
 '''
     style { icon tech:terraform }
   }
+
 }

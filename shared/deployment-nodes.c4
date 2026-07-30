@@ -1,0 +1,26 @@
+specification {
+
+  // ── Deployment node kinds ──
+  deploymentNode cloud {
+    notation 'Cloud'
+    description 'Public cloud provider region.'
+  }
+  deploymentNode region {
+    notation 'Region'
+    description 'Geographic region within a cloud provider.'
+  }
+  deploymentNode vpc {
+    notation 'VPC'
+    description 'Virtual Private Cloud — isolated network with public subnet.'
+  }
+  deploymentNode ec2 {
+    notation 'EC2'
+    technology 'AWS EC2 · Spot'
+    description 'Spot EC2 instance running Ubuntu 26.04, part of a K8s cluster.'
+  }
+  deploymentNode sg {
+    notation 'SG'
+    description 'AWS Security Group — phased ingress rules (provisioning → lockdown).'
+  }
+
+}

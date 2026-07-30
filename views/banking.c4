@@ -1,0 +1,66 @@
+views 'Architecture' {
+
+  // ═══════════════════════════════════════════════════
+  //  Banking Application — Container View
+  // ═══════════════════════════════════════════════════
+  view banking_system {
+    title 'Containers / Banking Application'
+    description '''
+**13 containers.** Traffic: Caddy(TLS, hostPort) → Kong(ClusterIP) → routes by path:
+`/` → frontend, `/api` → api-producer, `/ws` → notification (WebSocket).
+
+Backend services communicate over NATS RPC. PostgreSQL + Redis StatefulSets with PVs.
+'''
+
+    rank same { k8s_platform.caddy }
+    rank same { banking.kong }
+    rank same { banking.frontend, banking.producer }
+    rank same { banking.nats, banking.jets }
+    rank same { banking.auth, banking.account, banking.transfer, banking.notify }
+    rank same { banking.postgres, banking.redis }
+
+    autoLayout LeftRight 120 100
+
+    global style theme_banking
+
+    group 'Ingress' {
+      color bank_green;
+      opacity 25%;
+      border dashed
+      include k8s_platform.caddy
+    }
+    group 'Gateway + Web' {
+      color bank_indigo;
+      opacity 20%;
+      border dashed
+      include banking.kong, banking.frontend
+    }
+    group 'Bridge' {
+      color primary;
+      opacity 20%;
+      border dashed
+      include banking.producer
+    }
+    group 'Message Bus' {
+      color sky;
+      opacity 20%;
+      border dashed
+      include banking.nats, banking.jets
+    }
+    group 'Consumers (Go)' {
+      color amber;
+      opacity 15%;
+      border dashed
+      include banking.auth, banking.account, banking.transfer, banking.notify
+    }
+    group 'Data' {
+      color secondary;
+      opacity 20%;
+      border dashed
+      include banking.postgres, banking.redis
+    }
+
+    style k8s_platform.caddy { color bank_green }
+  }
+
+}

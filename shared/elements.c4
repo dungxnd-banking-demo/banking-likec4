@@ -1,0 +1,95 @@
+specification {
+
+  // ── Element kinds with shapes, descriptors, and tag inheritance ──
+  element actor {
+    style { shape person }
+  }
+  element person {
+    description 'Human interacting with the system.'
+    style { shape person; icon bootstrap:person }
+  }
+  element system {
+    description 'A software system — the highest level of abstraction.'
+    style { color primary }
+  }
+  element externalSystem {
+    description 'External system owned by a third party or another team. Outside our scope.'
+    style { color muted }
+  }
+
+  element proxy {
+    #stateless
+    notation 'Edge Proxy'
+    description 'Reverse proxy — TLS termination, routing, hostPort binding.'
+    style { icon tech:nginx }
+  }
+  element webapp {
+    #stateless
+    notation 'SPA'
+    description 'Browser-based single-page application.'
+    style { shape browser; icon tech:react }
+  }
+  element apigateway {
+    #stateless
+    notation 'API Gateway'
+    description 'API Gateway — route matching, plugins, rate limiting.'
+    style { icon tech:kong }
+  }
+  element bridge {
+    #stateless
+    notation 'Bridge'
+    description 'Protocol adapter — maps external requests to internal messaging.'
+    style { icon tech:go }
+  }
+  element service {
+    notation 'Service'
+    description 'Go microservice — request/reply over NATS, SQL over pgxpool, Redis via go-redis.'
+    style { icon tech:go }
+  }
+  element messagebus {
+    #event_driven
+    notation 'Msg Bus'
+    description 'Message broker with request/reply and durable streams.'
+    style { icon tech:nats-icon }
+  }
+  element eventstore {
+    #cqrs #event_driven
+    notation 'Event Store'
+    description 'Durable event log with pull consumers and deduplication.'
+    style { icon tech:nats-icon }
+  }
+  element db {
+    #stateful
+    notation 'Database'
+    description 'Relational database with persistent volumes.'
+    style { icon tech:postgresql; shape storage }
+  }
+  element kvstore {
+    #stateful
+    notation 'KV Store'
+    description 'In-memory key-value store — cache, sessions, pub/sub.'
+    style { icon tech:redis; shape storage }
+  }
+  element o11y {
+    notation 'O11y'
+    description 'Observability — metrics, logs, traces, dashboards.'
+    style { icon tech:grafana }
+  }
+  element pipeline {
+    notation 'Pipeline'
+    description 'CI/CD pipeline — build, scan, test, deploy.'
+  }
+  element scanner {
+    notation 'Scanner'
+    description 'Security scanner — SAST, secrets, dependencies, config.'
+  }
+  element cn {
+    notation 'CNI'
+    description 'Container network interface — pod networking, service routing.'
+  }
+  element bastion {
+    notation 'Bastion'
+    description 'Zero-trust SSH bastion with session recording and audit.'
+  }
+
+}

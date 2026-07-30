@@ -1,0 +1,11 @@
+specification {
+
+  // ── Tags ──
+  tag cqrs         { color #1b5e20 }
+  tag event_driven { color #0d47a1 }
+  tag stateful
+  tag stateless
+  tag realtime
+  tag security
+
+}

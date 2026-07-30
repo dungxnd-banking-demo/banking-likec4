@@ -1,0 +1,26 @@
+views 'CI/CD' {
+
+  // ═══════════════════════════════════════════════════
+  //  GitOps CI/CD Pipeline
+  // ═══════════════════════════════════════════════════
+  view gitops_pipeline of devsecops {
+    title 'Pipeline / GitOps CI/CD'
+    description 'On push to main: matrix build → GHCR push → yq tag bump in gitops → ArgoCD auto-sync (prune + selfHeal). On PR: 9 parallel security scans block merge.'
+
+    include *
+    include github, ghcr
+
+    include ci_build -> github, ci_build -> ghcr
+    include security_scanners -> ci_build
+    include github -> k8s_platform.argocd, ghcr -> k8s_platform.argocd
+    include gitops_update -> github
+    include perf_test -> banking
+
+    autoLayout LeftRight 120 100
+
+    style ci_build { color amber }
+    style k8s_platform.argocd { color sky }
+    style security_scanners { color bank_red }
+  }
+
+}

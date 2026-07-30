@@ -8,5 +8,9 @@
   },
   "landingPage": {
     "redirect": true
+  },
+  "include": {
+    "paths": ["shared", "models", "relationships", "deployment", "views"],
+    "maxDepth": 2
   }
 }

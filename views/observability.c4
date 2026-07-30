@@ -1,0 +1,26 @@
+views 'Observability' {
+
+  // ═══════════════════════════════════════════════════
+  //  Observability Stack
+  // ═══════════════════════════════════════════════════
+  view observability_view of monitoring {
+    title 'Operations / Observability Stack'
+    description '''
+Self-hosted in-cluster. Namespace: `monitoring`.
+
+Services emit `/metrics` (Prometheus, 15s scrape) and OTLP/gRPC traces.
+OTel Collector → Jaeger. Grafana dashboards: request rate + p99 latency.
+Instana (external APM) collects OTLP in production.
+'''
+
+    include *
+
+    autoLayout TopBottom 100 80
+
+    style prometheus { color bank_green }
+    style grafana { color bank_indigo }
+    style jaeger { color sky }
+    style otel_collector { color amber }
+  }
+
+}
