@@ -1,0 +1,201 @@
+views 'Dynamic' {
+
+  // ═══════════════════════════════════════════════════
+  //  Transfer money — sequence diagram
+  // ═══════════════════════════════════════════════════
+  dynamic view transfer_sequence {
+    title 'Use Cases / 12.1 Transfer / Send Money — Sequence'
+    description 'End-to-end transfer: request arrives at Kong, routes to api-producer, dispatched over NATS RPC to transfer-service. Serializable transaction with Redis pipeline and JetStream event publishing. Account-service replays events to update the balance read model.'
+    variant sequence
+
+    include
+      customer,
+      banking.caddy,
+      banking.kong,
+      banking.producer,
+      banking.nats,
+      banking.transfer,
+      banking.postgres,
+      banking.redis,
+      banking.jets,
+      banking.account,
+      banking.notify
+
+    customer -> banking.caddy 'initiate transfer'
+    banking.caddy -> banking.kong 'route'
+    banking.kong -> banking.producer 'forward to bridge'
+    banking.producer -> banking.nats 'map path to subject'
+    banking.nats -> banking.transfer 'dispatch request'
+
+    customer <- banking.caddy 'acknowledged'
+
+    try {
+      banking.transfer -> banking.postgres 'begin serializable transaction'
+      alt {
+        when 'sufficient balance' {
+          banking.postgres -> banking.postgres 'lock rows, atomic debit+credit'
+          banking.transfer -> banking.redis 'invalidate caches, update balances, publish'
+          banking.transfer -> banking.jets 'publish event with dedup'
+          banking.jets -> banking.redis 'fan-out to notification channel'
+        }
+        else 'insufficient / conflict' {
+          banking.postgres -> banking.postgres 'rollback'
+          banking.transfer <- banking.postgres 'serialization failure'
+        }
+      }
+    } catch 'on failure' {
+      banking.transfer -> banking.transfer 'retry with jitter'
+    } finally {
+      banking.transfer -> banking.postgres 'commit'
+    }
+
+    banking.jets -> banking.account 'durable consumer replays events'
+    banking.account -> banking.redis 'rebuild balance read model'
+    banking.account -> banking.postgres 'backfill from source of truth'
+
+    banking.redis -> banking.notify 'subscriber receives trigger'
+    banking.notify -> customer 'push result via WebSocket'
+  }
+
+  // ═══════════════════════════════════════════════════
+  //  Login / Register flow — sequence diagram
+  // ═══════════════════════════════════════════════════
+  dynamic view auth_sequence {
+    title 'Use Cases / 03.1 Authentication / Login & Register — Sequence'
+    description 'Two paths: registration with bcrypt hashing, or login with Redis cache acceleration and DB backfill on cache miss. Session token returned as secure cookie.'
+    variant sequence
+
+    include
+      customer,
+      banking.caddy,
+      banking.kong,
+      banking.producer,
+      banking.nats,
+      banking.auth,
+      banking.postgres,
+      banking.redis
+
+    alt {
+      when 'register' {
+        customer -> banking.caddy 'submit registration'
+        banking.caddy -> banking.kong 'route'
+        banking.kong -> banking.producer 'forward'
+        banking.producer -> banking.nats 'map to subject'
+        banking.nats -> banking.auth 'dispatch'
+
+        banking.auth -> banking.postgres 'insert user with bcrypt hash'
+        banking.auth <- banking.postgres 'user created'
+
+        customer <- banking.caddy 'account number returned'
+      }
+      else 'login' {
+        customer -> banking.caddy 'submit credentials'
+        banking.caddy -> banking.kong 'route'
+        banking.kong -> banking.producer 'forward'
+        banking.producer -> banking.nats 'map to subject'
+        banking.nats -> banking.auth 'dispatch'
+
+        opt 'cache miss' {
+          banking.auth -> banking.redis 'read from cache'
+          banking.auth <- banking.redis 'not found'
+          banking.auth -> banking.postgres 'look up user'
+          banking.auth <- banking.postgres 'user found'
+          banking.auth -> banking.redis 'populate cache'
+        }
+
+        banking.auth -> banking.redis 'read from cache'
+        banking.auth <- banking.redis 'user data'
+
+        banking.auth -> banking.auth 'verify password with bcrypt'
+        banking.auth -> banking.redis 'create session with expiry'
+        customer <- banking.caddy 'session cookie set'
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════
+  //  Balance check — sequence
+  // ═══════════════════════════════════════════════════
+  dynamic view balance_sequence {
+    title 'Use Cases / 05.1 Balance / Check Balance — Sequence'
+    description 'CQRS read path: Redis hash is the primary read model. On cache miss, falls back to PostgreSQL and backfills the cache.'
+    variant sequence
+
+    include
+      customer,
+      banking.caddy,
+      banking.kong,
+      banking.producer,
+      banking.nats,
+      banking.account,
+      banking.postgres,
+      banking.redis
+
+    customer -> banking.caddy 'request balance'
+    banking.caddy -> banking.kong 'route'
+    banking.kong -> banking.producer 'forward'
+    banking.producer -> banking.nats 'map to subject'
+    banking.nats -> banking.account 'dispatch'
+
+    alt {
+      when 'read model warm' {
+        banking.account -> banking.redis 'read balance hash'
+        banking.account <- banking.redis 'cached balance'
+      }
+      else 'read model cold' {
+        banking.account -> banking.redis 'read balance hash'
+        banking.account <- banking.redis 'not found'
+        banking.account -> banking.postgres 'query from source of truth'
+        banking.account <- banking.postgres 'current balance'
+        banking.account -> banking.redis 'backfill balance hash'
+      }
+    }
+
+    customer <- banking.caddy 'balance returned'
+  }
+
+  // ═══════════════════════════════════════════════════
+  //  Real-time notification push
+  // ═══════════════════════════════════════════════════
+  dynamic view notify_sequence {
+    title 'Use Cases / 15.1 Notifications / Real-time Push — Sequence'
+    description 'Persistent WebSocket lifecycle: connection upgrade, session auth, Redis pub/sub subscription, heartbeat with presence tracking.'
+    variant sequence
+
+    include
+      customer,
+      banking.caddy,
+      banking.kong,
+      banking.notify,
+      banking.redis
+
+    customer -> banking.caddy 'WebSocket upgrade'
+    banking.caddy -> banking.kong 'connect'
+    banking.kong -> banking.notify 'forward (least-connections)'
+
+    banking.notify -> banking.redis 'validate session'
+    banking.notify <- banking.redis 'session data'
+
+    alt {
+      when 'session valid' {
+        banking.redis -> banking.notify 'subscribe to notification channel'
+        banking.notify -> customer 'connection established + heartbeat'
+
+        loop 'until disconnect' {
+          opt 'transfer completes' {
+            banking.redis -> banking.notify 'notification published'
+            banking.notify -> customer 'push JSON frame'
+          }
+          opt 'heartbeat check' {
+            customer -> banking.notify 'ping'
+            banking.notify -> customer 'pong'
+          }
+        }
+      }
+      else 'session expired' {
+        banking.notify -> customer 'close connection'
+      }
+    }
+  }
+
+}

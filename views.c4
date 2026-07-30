@@ -1,35 +1,43 @@
 global {
-
+  // Shared styles — applied by name in specific views
   style mute_externals github, ghcr, duckdns, instana {
     color muted
     opacity 60%
   }
+
+  styleGroup theme_banking {
+    style banking.caddy, banking.nats, banking.jets { color sky }
+    style banking.kong { color bank_indigo }
+    style banking.auth, banking.account, banking.transfer, banking.notify { color amber }
+    style banking.postgres { color secondary }
+    style banking.redis { color red }
+    style monitoring { color bank_green }
+    style argocd { color sky }
+    style infra_repo { color bank_indigo }
+  }
 }
 
-views {
+views 'Architecture' {
 
   // ═══════════════════════════════════════════════════
   //  Level 1: System Landscape (C4 Level 1)
   // ═══════════════════════════════════════════════════
   view index {
-    title 'System Landscape — C4 Level 1'
+    title 'Landscape / C4 Level 1'
     description '''
-        **Banking Demo** ecosystem — event-driven banking app on K8s (AWS EC2).
-
-        ArgoCD syncs the Helm chart from banking-demo-gitops.
-        Infrastructure provisioned by bankind-demo-infra (Terraform + Ansible).
-        Monitoring stack runs in-cluster. Instana provides production observability.
-        '''
-
-    // include * auto-derives all top-level elements + their relationships
+**Banking Demo** ecosystem — event-driven banking app on K8s (AWS EC2). ArgoCD syncs Helm chart from banking-demo-gitops. Infrastructure provisioned by bankind-demo-infra (Terraform + Ansible). Monitoring stack runs in-cluster. Instana provides production observability.
+'''
     include *
     exclude banking.ci
+
+    include
+      banking with {
+        navigateTo banking_system
+      }
 
     autoLayout LeftRight 150 100
 
     style banking { color bank_green }
-    style argocd { color sky }
-    style infra_repo { color bank_indigo }
 
     group 'External Services' {
       include github, ghcr, duckdns, instana
@@ -43,39 +51,40 @@ views {
   //  Level 2: Banking System — Container View
   // ═══════════════════════════════════════════════════
   view banking_system of banking {
-    title 'Banking System — Containers (C4 Level 2)'
+    title 'Containers / C4 Level 2'
     description '''
-        **17 containers**. Request flow: Browser → Caddy(TLS) → Kong(ClusterIP) → api-producer → NATS RPC → 4 services → PG+Redis.
-        WebSocket bypasses NATS: Kong → notification-service directly.
-        '''
+**17 containers.** All traffic enters through Caddy (hostPort, on control-plane node) → Kong (ClusterIP, on worker-1) → routes by path: `/` → frontend, `/api` → api-producer, `/ws` → notification (WebSocket).
+
+Backend services communicate over NATS RPC. PostgreSQL and Redis are StatefulSets with PersistentVolumes.
+'''
     include *
 
-    rank same { caddy, frontend }
-    rank same { kong, producer }
+    rank same { caddy }
+    rank same { kong }
+    rank same { frontend, producer }
     rank same { nats, jets }
     rank same { auth, account, transfer, notify }
     rank same { postgres, redis }
 
     autoLayout LeftRight 120 100
 
-    style caddy { color bank_green }
-    style kong { color bank_indigo }
-    style producer { color primary }
-    style nats, jets { color sky }
-    style auth, account, transfer, notify { color amber }
-    style postgres { color secondary }
-    style redis { color red }
+    global style theme_banking
 
-    group 'Entry' {
-      include caddy, frontend
+    style caddy { color bank_green }
+
+    group 'Ingress' {
+      include caddy
     }
-    group 'Gateway + Bridge' {
-      include kong, producer
+    group 'Gateway + Web' {
+      include kong, frontend
+    }
+    group 'Bridge' {
+      include producer
     }
     group 'Message Bus' {
       include nats, jets
     }
-    group 'Consumer Services' {
+    group 'Consumers (Go)' {
       include auth, account, transfer, notify
     }
     group 'Data' {
@@ -87,13 +96,14 @@ views {
   //  API Request Flow
   // ═══════════════════════════════════════════════════
   view api_flow of banking {
-    title 'API Request Flow'
-    description 'GET/POST: Browser → Caddy → Kong → api-producer → NATS RPC → service. Auth headers in NATS message headers. W3C traceparent + Nats-Trace-Dest(1%).'
+    title 'Requests / API Flow'
+    description 'All requests hit Caddy (TLS termination) → Kong (routing by path) → three possible backends: SPA (`/`), API (`/api`), WebSocket (`/ws`). W3C traceparent propagated through NATS message headers.'
 
     include
       customer,
       caddy,
       kong,
+      frontend,
       producer,
       nats,
       auth,
@@ -103,8 +113,7 @@ views {
 
     include customer -> caddy
     include caddy -> kong
-    include kong -> producer
-    include kong -> notify
+    include kong -> frontend, kong -> producer, kong -> notify
     include producer -> nats
     include nats -> auth, nats -> account, nats -> transfer, nats -> notify
 
@@ -120,8 +129,8 @@ views {
   //  NATS Subject Hierarchy
   // ═══════════════════════════════════════════════════
   view nats_subjects of banking {
-    title 'NATS Subject Hierarchy'
-    description 'Core NATS request/reply (nats/micro) + JetStream durable events. Full subject = queue group for auto load-balancing across replicas.'
+    title 'Messaging / NATS Subjects'
+    description 'Core NATS request/reply (nats/micro) with queue groups for load balancing across replicas. JetStream durable event stream (30-day retention) with Nats-Msg-Id dedup.'
 
     include nats, auth, account, transfer, notify, jets
 
@@ -133,20 +142,21 @@ views {
 
     style nats { color sky }
     style jets { color bank_amber }
+    style auth, account, transfer, notify { color amber }
   }
 
   // ═══════════════════════════════════════════════════
-  //  Transfer Flow — CQRS detail
+  //  Transfer Flow — CQRS Three-Tier detail
   // ═══════════════════════════════════════════════════
   view transfer_flow of banking {
-    title 'Transfer Flow — CQRS Three-Tier'
+    title 'Features / Transfer Flow'
     description '''
-        **Tier 1 (PostgreSQL):** SerializableTx (5× jitter retry on 40001). Lock ORDER BY id. Atomic debit+credit+3 inserts.
+**Three-tier CQRS transfer:**
 
-        **Tier 2 (Redis):** Post-commit pipeline — 5 commands in 1 RTT: DEL user_cache(×2), HSET balance(×2), PUBLISH notify.
-
-        **Tier 3 (JetStream):** PublishMsg with Nats-Msg-Id dedup. Account durable pull consumer replays on cold start to rebuild balance hash.
-        '''
+1. **SerializableTx** — row-level lock, atomic debit+credit, 5× jitter retry on conflict
+2. **Redis pipeline** — 5 commands in 1 RTT (invalidate cache, update balances, publish notification)
+3. **JetStream** — publish event with Nats-Msg-Id dedup; account-service durable consumer replays on cold start to rebuild balance read model
+'''
     include
       customer,
       transfer,
@@ -167,6 +177,11 @@ views {
 
     autoLayout LeftRight 120 90
 
+    include
+      transfer with {
+        navigateTo transfer_sequence
+      }
+
     style transfer { color amber }
     style postgres { color secondary }
     style redis { color red }
@@ -174,7 +189,7 @@ views {
     style account { color primary }
     style notify { color sky }
 
-    group 'Tier 1 — SerializableTx' {
+    group 'Tier 1 — Serializable Transaction' {
       include transfer, postgres
     }
     group 'Tier 2 — Redis Pipeline' {
@@ -192,8 +207,8 @@ views {
   //  Data Layer
   // ═══════════════════════════════════════════════════
   view data_layer of banking {
-    title 'Data Layer — PostgreSQL + Redis'
-    description 'PostgreSQL tables + Redis key space. 4 services share one DB (banking). Redis provides sessions, cache, CQRS read model, and pub/sub.'
+    title 'Data / PostgreSQL + Redis'
+    description '4 services share one PostgreSQL database (banking) with 3 tables (users, transfers, notifications). Redis provides sessions, user cache, CQRS balance read model, and pub/sub notification channels. Both StatefulSets with PersistentVolumeClaims (5Gi + 1Gi on local-path).'
 
     include
       auth,
@@ -203,23 +218,24 @@ views {
       postgres,
       redis
 
-    include auth -> postgres,    auth -> redis
+    include auth -> postgres, auth -> redis
     include account -> postgres, account -> redis
     include transfer -> postgres, transfer -> redis
-    include notify -> postgres,  notify -> redis
+    include notify -> postgres, notify -> redis
 
     autoLayout TopBottom 100 80
 
     style postgres { color secondary }
     style redis { color red }
+    style auth, account, transfer, notify { color amber }
   }
 
   // ═══════════════════════════════════════════════════
   //  Observability
   // ═══════════════════════════════════════════════════
   view observability_view {
-    title 'Observability — Logs, Metrics, Traces'
-    description 'All services emit structured JSON logs (slog), expose /metrics (Prometheus), and export OTLP/gRPC traces → Instana or OTel Collector → Jaeger.'
+    title 'Operations / Observability'
+    description 'Every Go service exposes `/metrics` (Prometheus), `/health` (readiness), and exports OTLP/gRPC traces to Instana agent on :4317. Structured JSON logs via slog. Kong exports Prometheus + OTel via global plugins. NATS exporter on :7777. Self-hosted Grafana dashboard: "Banking Services".'
 
     include
       monitoring,
@@ -231,13 +247,13 @@ views {
       banking.producer,
       banking.nats
 
-    include monitoring -> banking.auth,  monitoring -> banking.account,  monitoring -> banking.transfer,  monitoring -> banking.notify,  monitoring -> banking.producer,  monitoring -> banking.nats
-    include instana   -> banking.auth,  instana   -> banking.account,  instana   -> banking.transfer,  instana   -> banking.notify,  instana   -> banking.producer
+    include monitoring -> banking.auth, monitoring -> banking.account, monitoring -> banking.transfer, monitoring -> banking.notify, monitoring -> banking.producer, monitoring -> banking.nats
+    include instana -> banking.auth, instana -> banking.account, instana -> banking.transfer, instana -> banking.notify, instana -> banking.producer
 
-    group 'Services (signals)' {
+    group 'Signals (emitters)' {
       include banking.auth, banking.account, banking.transfer, banking.notify, banking.producer, banking.nats
     }
-    group 'Backends' {
+    group 'Backends (collectors)' {
       include monitoring, instana
     }
 
@@ -245,12 +261,16 @@ views {
     style instana { color bank_indigo }
   }
 
+}
+
+views 'CI/CD' {
+
   // ═══════════════════════════════════════════════════
   //  GitOps CI/CD Pipeline
   // ═══════════════════════════════════════════════════
   view gitops_pipeline of banking {
-    title 'GitOps CI/CD Pipeline'
-    description '3 repos, 1 pipeline: revamp(CI)→GHCR → gitops(tag bump)→ArgoCD(auto-sync). bankind-demo-infra provisions EC2+K8s+ArgoCD. banking-likec4 documents architecture.'
+    title 'Pipeline / GitOps CI/CD'
+    description 'revamp (GitHub Actions matrix build) → GHCR (multi-arch images) → gitops (auto-commit tag bump) → ArgoCD (auto-sync + prune + selfHeal). Infra repo provisions EC2 + K8s + ArgoCD via Terraform + Ansible 9-play site.yml.'
 
     include
       ci,
@@ -259,9 +279,9 @@ views {
       argocd,
       infra_repo
 
-    include ci      -> github,     ci      -> ghcr
-    include github  -> argocd,     ghcr    -> argocd
-    include argocd  -> banking,    infra_repo -> banking
+    include ci -> github, ci -> ghcr
+    include github -> argocd, ghcr -> argocd
+    include argocd -> banking, infra_repo -> banking
     include infra_repo -> argocd
 
     autoLayout LeftRight 120 100
@@ -270,4 +290,5 @@ views {
     style argocd { color sky }
     style infra_repo { color bank_indigo }
   }
+
 }
