@@ -53,8 +53,8 @@ model {
     caddy = proxy 'Caddy :80,443,2222' {
       #stateless
       technology 'Caddy 2.11'
-      description 'Edge proxy. hostPort + hostNetwork on control-plane. TLS termination via Let\'s Encrypt. Reverse-proxy to Kong + Warpgate.'
-      metadata { ports '80, 443, 2222'; net 'hostNetwork'; tls 'Let\'s Encrypt HTTP-01' }
+      description 'Edge proxy deployed on control-plane node via nodeSelector (**tolerates control-plane taint**). Uses **hostPort 80/443/2222** — traffic hits the node IP directly (no Ingress, no LoadBalancer, no NodePort). TLS termination via Let\'s Encrypt (HTTP-01 challenge on port 80). Reverse-proxy to Kong (ClusterIP) and Warpgate via Cilium eBPF service routing.'
+      metadata { ports 'hostPort 80, 443, 2222'; tls 'Let\'s Encrypt HTTP-01'; node_selector 'node-role.kubernetes.io/control-plane' }
     }
 
     frontend = webapp 'Frontend :80' {

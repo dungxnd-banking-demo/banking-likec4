@@ -51,24 +51,23 @@ banking-likec4/
 
 | View | What it shows |
 |---|---|
-| `index` | C4 Level 1 — System Landscape. Actors, external systems, Banking System, infra repo |
-| `banking-system` | C4 Level 2 — Containers. All 17 deployable units with groups and auto-layout |
-| `api-request-flow` | How an HTTP REST call flows: Browser → Caddy → Kong → api-producer → NATS → service |
-| `nats-subjects` | NATS subject hierarchy — RPC subjects and JetStream event subjects |
-| `transfer-flow` | Money transfer with CQRS: DB tx → Redis pipeline → JetStream → WebSocket push |
-| `data-layer` | PostgreSQL tables + Redis key space (session, cache, balance hash, pub/sub) |
-| `observability-stack` | Structured logs + Prometheus metrics + OTel traces → self-hosted or Instana |
-| `gitops-pipeline` | CI → GitHub → GHCR → ArgoCD → Kubernetes (3 repos, 1 pipeline) |
-| `redis-keyspace` | CQRS read model: session, user_cache, balance hash, notify pub/sub |
+| `index` | C4 Level 1 — System Landscape. All actors, external systems, Banking System, GitOps, infra |
+| `banking_system` | C4 Level 2 — Containers. 17 deployable units with rank constraints (5 clean rows) |
+| `api_flow` | Zoom-in: Browser → Caddy → Kong → api-producer → NATS RPC → services |
+| `nats_subjects` | NATS subject hierarchy — RPC per-action subjects + JetStream event subject |
+| `transfer_flow` | CQRS three-tier: SerializableTx → Redis pipeline → JetStream → WebSocket push |
+| `data_layer` | PostgreSQL tables + Redis key space. 4 services sharing one DB + one cache |
+| `observability_view` | Services emitting logs/metrics/traces → Prometheus + Grafana + Jaeger + Instana |
+| `gitops_pipeline` | CI → GitHub → GHCR → ArgoCD → K8s (3 repos, 1 pipeline) |
 
 ### Deployment
 
 | View | What it shows |
 |---|---|
-| `deployment-infra` | AWS EC2 cluster: master + 2 workers + warpgate node in a VPC |
-| `deployment-app-pods` | App pod distribution across worker nodes |
-| `deployment-security` | Post-lockdown security posture — only 80/443/2222 open |
-| `deployment-audit` | Audit logging pipeline: kube-apiserver → Vector → Parseable → SeaweedFS |
+| `deployment_infra` | AWS EC2 cluster: master + 2 workers + warpgate node in a VPC |
+| `deployment_app_pods` | App pod distribution across worker nodes |
+| `deployment_security` | Post-lockdown security posture — only 80/443/2222 open |
+| `deployment_audit` | Audit logging pipeline: kube-apiserver → Vector → Parseable → SeaweedFS |
 
 ## Scripts
 
@@ -92,17 +91,18 @@ To use a different repo name, update `--base` in `package.json` → `build` scri
 
 The model uses semantic relationship kinds instead of generic labels:
 
-| Kind | Used for |
-|---|---|
-| `http` | HTTPS / HTTP between services (solid, secondary color) |
-| `nats-rpc` | NATS Core request/reply via `nats/micro` (solid, green) |
-| `nats-jetstream` | JetStream durable event stream (dashed, amber) |
-| `ws` | WebSocket connections (solid, sky) |
-| `redis-pubsub` | Redis publish/subscribe (dashed, red) |
-| `sql` | PostgreSQL queries (solid, gray) |
-| `deploy` | CI/CD deployments (dotted, muted) |
-| `sync-gitops` | ArgoCD GitOps sync (solid, sky) |
-| `provisions` | Terraform/Ansible infrastructure provisioning (dotted, muted) |
+| Kind | Visual | Used for |
+|---|---|---|
+| `https` | solid · secondary | HTTPS between services |
+| `nat_rpc` | solid · green · diamond head | NATS Core request/reply via `nats/micro` |
+| `jetstream_evt` | dashed · amber | JetStream durable event stream |
+| `websocket_cn` | solid · sky | WebSocket connections |
+| `redis_cmd` | dashed · red | Redis commands + pub/sub |
+| `sql_tx` | solid · gray | PostgreSQL queries + transactions |
+| `gitops` | solid · sky · diamond head | ArgoCD GitOps sync |
+| `provision` | dotted · muted | Terraform/Ansible infrastructure provisioning |
+| `push_image` | dotted · muted | Docker push → GitHub Container Registry |
+| `oltp_grpc` | dotted · gray | OpenTelemetry OTLP/gRPC traces |
 
 ## Tech stack
 

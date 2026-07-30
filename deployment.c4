@@ -13,7 +13,7 @@ deployment {
 
       master = ec2 'Master Node' {
         title 'master (t3a.medium)'
-        description 'Ubuntu 26.04. K8s control-plane. Caddy hostPort 80/443/2222. ArgoCD. Cilium CNI kube-proxy replacement. kube-apiserver audit (CIS policy).'
+        description 'Ubuntu 26.04. K8s control-plane. Caddy deployed via nodeSelector — binds **hostPort 80/443/2222** directly. ArgoCD. Cilium CNI kube-proxy replacement. kube-apiserver audit (CIS policy).'
         technology 'Ubuntu 26.04'
       }
 
@@ -41,8 +41,8 @@ deployment {
 deployment {
   extend aws.vpc.master {
     caddyInstance = instanceOf banking.caddy {
-      title 'Caddy (hostPort)'
-      description 'hostNetwork:true. Binds 80/443 for app traffic, 2222 for Warpgate SSH proxy.'
+      title 'Caddy (hostPort 80/443/2222)'
+      description 'Deployed on master via nodeSelector. Uses **hostPort 80** (HTTP), **hostPort 443** (HTTPS), and **hostPort 2222** (Warpgate SSH). Traffic hits the node IP directly — no Ingress, no LoadBalancer.'
     }
   }
 
