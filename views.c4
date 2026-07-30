@@ -1,164 +1,177 @@
 global {
-  style mute_externals github, ghcr, duckdns, instana {
+  style mute_externals github, ghcr, duckdns, letsencrypt, instana {
     color muted
     opacity 60%
   }
 
   styleGroup theme_banking {
-    style banking.caddy, banking.nats, banking.jets { color sky }
+    style banking.nats, banking.jets { color sky }
     style banking.kong { color bank_indigo }
     style banking.auth, banking.account, banking.transfer, banking.notify { color amber }
     style banking.postgres { color secondary }
     style banking.redis { color red }
     style monitoring { color bank_green }
-    style argocd { color sky }
+    style k8s_platform.argocd { color sky }
     style infra_repo { color bank_indigo }
-  }
-
-  // ── View-level predicate groups for reuse ──
-  predicateGroup external_services {
-    include github, ghcr, duckdns, instana
-  }
-  predicateGroup gitops_infra {
-    include argocd, infra_repo
+    style devsecops { color amber }
   }
 }
 
 views 'Architecture' {
 
   // ═══════════════════════════════════════════════════
-  //  Level 1: System Landscape (C4 Level 1)
+  //  System Landscape
   // ═══════════════════════════════════════════════════
   view index {
-    title 'Landscape / C4 Level 1'
+    title 'Landscape / System Overview'
     description '''
-**Banking Demo** ecosystem — event-driven banking app on K8s (AWS EC2). ArgoCD syncs Helm chart from banking-demo-gitops. Infrastructure provisioned by bankind-demo-infra (Terraform + Ansible). Monitoring stack runs in-cluster. Instana provides production observability.
+**Banking Demo Platform** — 4-node K8s cluster on AWS EC2 (ap-southeast-1).
+Event-driven banking app, self-hosted observability, DevSecOps pipeline with 9 parallel security scans.
+GitOps deployment via ArgoCD. Zero-trust SSH bastion via Warpgate.
 '''
     global style mute_externals
 
     autoLayout LeftRight 150 100
 
-    // Groups first — elements stay in their first group
     group 'External Services' {
       color muted
       opacity 30%
       border dashed
-      include github, ghcr, duckdns, instana
+      include github, ghcr, duckdns, letsencrypt, instana
     }
-    group 'GitOps & Infrastructure' {
-      color sky
+    group 'Infrastructure' {
+      color bank_indigo
       opacity 25%
       border dashed
-      include argocd, infra_repo
+      include infra_repo
+    }
+    group 'Platform' {
+      color sky
+      opacity 20%
+      border dashed
+      include k8s_platform, banking, monitoring
     }
 
-    // Remaining elements outside groups
     include
       customer,
-      operator,
-      banking with {
-        navigateTo banking_system
-      },
-      monitoring
+      operator
 
-    exclude banking.ci
-
-    style banking { color bank_green }
+    style k8s_platform { color bank_green }
+    style banking { color amber }
   }
 
   // ═══════════════════════════════════════════════════
-  //  Level 2: Banking System — Container View
+  //  K8s Platform — internals
   // ═══════════════════════════════════════════════════
-  view banking_system of banking {
-    title 'Containers / C4 Level 2'
-    description '''
-**17 containers.** All traffic enters through Caddy (hostPort, on control-plane node) → Kong (ClusterIP, on worker-1) → routes by path: `/` → frontend, `/api` → api-producer, `/ws` → notification (WebSocket).
+  view platform_internals of k8s_platform {
+    title 'Containers / K8s Platform Internals'
+    description 'Control plane, CNI, storage, GitOps controller, edge proxy, security layers. All deployed by Ansible 9-play site.yml.'
 
-Backend services communicate over NATS RPC. PostgreSQL and Redis are StatefulSets with PersistentVolumes.
+    include *
+    autoLayout LeftRight 120 100
+
+    style control_plane { color primary }
+    style cilium { color sky }
+    style local_path { color secondary }
+    style caddy { color bank_green }
+    style argocd { color sky }
+    style warpgate { color bank_red }
+    style sg { color gray }
+    style audit { color gray }
+    style netpol { color gray }
+  }
+
+  // ═══════════════════════════════════════════════════
+  //  Banking Application — Container View
+  // ═══════════════════════════════════════════════════
+  view banking_system {
+    title 'Containers / Banking Application'
+    description '''
+**13 containers.** Traffic: Caddy(TLS, hostPort) → Kong(ClusterIP) → routes by path:
+`/` → frontend, `/api` → api-producer, `/ws` → notification (WebSocket).
+
+Backend services communicate over NATS RPC. PostgreSQL + Redis StatefulSets with PVs.
 '''
-    rank same { caddy }
-    rank same { kong }
-    rank same { frontend, producer }
-    rank same { nats, jets }
-    rank same { auth, account, transfer, notify }
-    rank same { postgres, redis }
+
+    rank same { k8s_platform.caddy }
+    rank same { banking.kong }
+    rank same { banking.frontend, banking.producer }
+    rank same { banking.nats, banking.jets }
+    rank same { banking.auth, banking.account, banking.transfer, banking.notify }
+    rank same { banking.postgres, banking.redis }
 
     autoLayout LeftRight 120 100
 
-    // Groups first — elements belong to their first group
+    global style theme_banking
+
     group 'Ingress' {
-      color bank_green
-      opacity 25%
+      color bank_green;
+      opacity 25%;
       border dashed
-      include caddy
+      include k8s_platform.caddy
     }
     group 'Gateway + Web' {
-      color bank_indigo
-      opacity 20%
+      color bank_indigo;
+      opacity 20%;
       border dashed
-      include kong, frontend
+      include banking.kong, banking.frontend
     }
     group 'Bridge' {
-      color primary
-      opacity 20%
+      color primary;
+      opacity 20%;
       border dashed
-      include producer
+      include banking.producer
     }
     group 'Message Bus' {
-      color sky
-      opacity 20%
+      color sky;
+      opacity 20%;
       border dashed
-      include nats, jets
+      include banking.nats, banking.jets
     }
     group 'Consumers (Go)' {
-      color amber
-      opacity 15%
+      color amber;
+      opacity 15%;
       border dashed
-      include auth, account, transfer, notify
+      include banking.auth, banking.account, banking.transfer, banking.notify
     }
     group 'Data' {
-      color secondary
-      opacity 20%
+      color secondary;
+      opacity 20%;
       border dashed
-      include postgres, redis
+      include banking.postgres, banking.redis
     }
 
-    // Styles applied after grouping
-    global style theme_banking
-    style caddy { color bank_green }
+    style k8s_platform.caddy { color bank_green }
   }
 
-  // ═══════════════════════════════════════════════════
-  //  API Request Flow
-  // ═══════════════════════════════════════════════════
-  view api_flow of banking {
+  view api_flow {
     title 'Requests / API Flow'
-    description 'All requests hit Caddy (TLS termination) → Kong (routing by path) → three possible backends: SPA (`/`), API (`/api`), WebSocket (`/ws`). W3C traceparent propagated through NATS message headers.'
+    description 'All requests: Caddy (TLS) → Kong (routing by path) → three backends: SPA, API, WebSocket. W3C traceparent in NATS headers.'
 
     include
       customer,
-      caddy,
-      kong,
-      frontend,
-      producer,
-      nats,
-      auth,
-      account,
-      transfer,
-      notify
+      k8s_platform.caddy,
+      banking.kong,
+      banking.frontend,
+      banking.producer,
+      banking.nats,
+      banking.auth,
+      banking.account,
+      banking.transfer,
+      banking.notify
 
-    include customer -> caddy
-    include caddy -> kong
-    include kong -> frontend, kong -> producer, kong -> notify
-    include producer -> nats
-    include nats -> auth, nats -> account, nats -> transfer, nats -> notify
+    include customer -> k8s_platform.caddy
+    include k8s_platform.caddy -> banking.kong
+    include banking.kong -> banking.frontend, banking.kong -> banking.producer, banking.kong -> banking.notify
+    include banking.producer -> banking.nats
+    include banking.nats -> banking.auth, banking.nats -> banking.account, banking.nats -> banking.transfer, banking.nats -> banking.notify
 
     autoLayout TopBottom 100 80
 
-    style caddy { color bank_green }
-    style kong { color bank_indigo }
-    style producer { color primary }
-    style nats { color sky }
+    style k8s_platform.caddy { color bank_green }
+    style banking.kong { color bank_indigo }
+    style banking.producer { color primary }
+    style banking.nats { color sky }
   }
 
   // ═══════════════════════════════════════════════════
@@ -166,24 +179,19 @@ Backend services communicate over NATS RPC. PostgreSQL and Redis are StatefulSet
   // ═══════════════════════════════════════════════════
   view nats_subjects of banking {
     title 'Messaging / NATS Subjects'
-    description 'Core NATS request/reply (nats/micro) with queue groups for load balancing across replicas. JetStream durable event stream (30-day retention) with Nats-Msg-Id dedup.'
+    description 'Core NATS request/reply (nats/micro) with queue groups. JetStream durable stream (30-day retention, Nats-Msg-Id dedup).'
 
     include nats, auth, account, transfer, notify, jets
-
     include nats -> auth, nats -> account, nats -> transfer, nats -> notify
     include transfer -> jets
     include jets -> account
 
     autoLayout TopBottom 100 80
-
     style nats { color sky }
     style jets { color bank_amber }
     style auth, account, transfer, notify { color amber }
   }
 
-  // ═══════════════════════════════════════════════════
-  //  Transfer Flow — CQRS Three-Tier detail
-  // ═══════════════════════════════════════════════════
   view transfer_flow of banking {
     title 'Features / Transfer Flow'
     description '''
@@ -191,35 +199,31 @@ Backend services communicate over NATS RPC. PostgreSQL and Redis are StatefulSet
 
 1. **SerializableTx** — row-level lock, atomic debit+credit, 5× jitter retry on conflict
 2. **Redis pipeline** — 5 commands in 1 RTT (invalidate cache, update balances, publish notification)
-3. **JetStream** — publish event with Nats-Msg-Id dedup; account-service durable consumer replays on cold start to rebuild balance read model
+3. **JetStream** — publish event with Nats-Msg-Id dedup; account-service durable consumer replays on cold start
 '''
     autoLayout LeftRight 120 90
 
     group 'Tier 1 — Serializable Transaction' {
-      color amber
-      opacity 20%
+      color amber;
+      opacity 20%;
       border dashed
-      include
-        transfer with {
-          navigateTo transfer_sequence
-        },
-        postgres
+      include transfer, postgres
     }
     group 'Tier 2 — Redis Pipeline' {
-      color red
-      opacity 15%
+      color red;
+      opacity 15%;
       border dashed
       include redis
     }
     group 'Tier 3 — JetStream' {
-      color sky
-      opacity 15%
+      color sky;
+      opacity 15%;
       border dashed
       include jets, account
     }
     group 'WebSocket Push' {
-      color bank_green
-      opacity 15%
+      color bank_green;
+      opacity 15%;
       border dashed
       include notify, customer
     }
@@ -241,21 +245,11 @@ Backend services communicate over NATS RPC. PostgreSQL and Redis are StatefulSet
     style notify { color sky }
   }
 
-  // ═══════════════════════════════════════════════════
-  //  Data Layer
-  // ═══════════════════════════════════════════════════
   view data_layer of banking {
     title 'Data / PostgreSQL + Redis'
-    description '4 services share one PostgreSQL database (banking) with 3 tables (users, transfers, notifications). Redis provides sessions, user cache, CQRS balance read model, and pub/sub notification channels. Both StatefulSets with PersistentVolumeClaims (5Gi + 1Gi on local-path).'
+    description '4 services share one PostgreSQL database (3 tables). Redis: sessions, user cache, CQRS balance read model, pub/sub. Both StatefulSets (5Gi + 1Gi on local-path).'
 
-    include
-      auth,
-      account,
-      transfer,
-      notify,
-      postgres,
-      redis
-
+    include auth, account, transfer, notify, postgres, redis
     include auth -> postgres, auth -> redis
     include account -> postgres, account -> redis
     include transfer -> postgres, transfer -> redis
@@ -267,34 +261,32 @@ Backend services communicate over NATS RPC. PostgreSQL and Redis are StatefulSet
     style redis { color red }
     style auth, account, transfer, notify { color amber }
   }
+}
+
+views 'Observability' {
 
   // ═══════════════════════════════════════════════════
-  //  Observability
+  //  Observability Stack
   // ═══════════════════════════════════════════════════
-  view observability_view {
-    title 'Operations / Observability'
-    description 'Every Go service exposes `/metrics` (Prometheus), `/health` (readiness), and exports OTLP/gRPC traces to Instana agent on :4317. Structured JSON logs via slog. Kong exports Prometheus + OTel via global plugins. NATS exporter on :7777. Self-hosted Grafana dashboard: "Banking Services".'
+  view observability_view of monitoring {
+    title 'Operations / Observability Stack'
+    description '''
+Self-hosted in-cluster. Namespace: `monitoring`.
 
-    group 'Signals (emitters)' {
-      color amber
-      opacity 15%
-      border dashed
-      include banking.auth, banking.account, banking.transfer, banking.notify, banking.producer, banking.nats
-    }
-    group 'Backends (collectors)' {
-      color bank_indigo
-      opacity 15%
-      border dashed
-      include monitoring, instana
-    }
+Services emit `/metrics` (Prometheus, 15s scrape) and OTLP/gRPC traces.
+OTel Collector → Jaeger. Grafana dashboards: request rate + p99 latency.
+Instana (external APM) collects OTLP in production.
+'''
 
-    include monitoring -> banking.auth, monitoring -> banking.account, monitoring -> banking.transfer, monitoring -> banking.notify, monitoring -> banking.producer, monitoring -> banking.nats
-    include instana -> banking.auth, instana -> banking.account, instana -> banking.transfer, instana -> banking.notify, instana -> banking.producer
+    include *
 
-    style monitoring { color bank_green }
-    style instana { color bank_indigo }
+    autoLayout TopBottom 100 80
+
+    style prometheus { color bank_green }
+    style grafana { color bank_indigo }
+    style jaeger { color sky }
+    style otel_collector { color amber }
   }
-
 }
 
 views 'CI/CD' {
@@ -302,27 +294,23 @@ views 'CI/CD' {
   // ═══════════════════════════════════════════════════
   //  GitOps CI/CD Pipeline
   // ═══════════════════════════════════════════════════
-  view gitops_pipeline of banking {
+  view gitops_pipeline of devsecops {
     title 'Pipeline / GitOps CI/CD'
-    description 'revamp (GitHub Actions matrix build) → GHCR (multi-arch images) → gitops (auto-commit tag bump) → ArgoCD (auto-sync + prune + selfHeal). Infra repo provisions EC2 + K8s + ArgoCD via Terraform + Ansible 9-play site.yml.'
+    description 'On push to main: matrix build → GHCR push → yq tag bump in gitops → ArgoCD auto-sync (prune + selfHeal). On PR: 9 parallel security scans block merge.'
 
-    include
-      ci,
-      github,
-      ghcr,
-      argocd,
-      infra_repo
+    include *
+    include github, ghcr
 
-    include ci -> github, ci -> ghcr
-    include github -> argocd, ghcr -> argocd
-    include argocd -> banking, infra_repo -> banking
-    include infra_repo -> argocd
+    include ci_build -> github, ci_build -> ghcr
+    include security_scanners -> ci_build
+    include github -> k8s_platform.argocd, ghcr -> k8s_platform.argocd
+    include gitops_update -> github
+    include perf_test -> banking
 
     autoLayout LeftRight 120 100
 
-    style ci { color amber }
-    style argocd { color sky }
-    style infra_repo { color bank_indigo }
+    style ci_build { color amber }
+    style k8s_platform.argocd { color sky }
+    style security_scanners { color bank_red }
   }
-
 }

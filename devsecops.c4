@@ -1,0 +1,29 @@
+model {
+
+  devsecops = system 'DevSecOps Pipeline' {
+    description 'GitHub Actions CI/CD on push to main. Matrix build → GHCR push → GitOps manifest update. PR pipeline: 8 parallel security scans (Trivy, Gitleaks, CodeQL, Bandit, pip-audit, Trivy config).'
+    style { icon tech:github }
+
+    ci_build = pipeline 'Build Matrix' {
+      technology 'docker/build-push-action@v7'
+      description 'Detects changed services via paths-filter. Parallel Go builds: CGO=0, -ldflags="-s -w", alpine:3.23 runtime. Frontend: node:24-alpine → nginx:alpine + nginx-module-otel.'
+    }
+
+    security_scanners = system 'Security Scans' {
+      #security
+      technology '9 parallel jobs'
+      description 'PR gate: Trivy FS (HIGH/CRITICAL), Gitleaks (no leaks), CodeQL (security-extended), Bandit (Python SAST), pip-audit (known vulns), Trivy config (Dockerfile/Helm). All exit 1 on findings → blocks merge.'
+      style { icon bootstrap:shield-shaded }
+    }
+
+    gitops_update = pipeline 'GitOps Update' {
+      technology 'yq · Git commit'
+      description 'Checks out banking-demo-gitops via GitHub App token. Surgically patches helm/values.yaml image tags with yq. Commits + pushes. ArgoCD auto-syncs the cluster.'
+    }
+
+    perf_test = pipeline 'k6 Performance' {
+      technology '6 scenarios'
+      description 'Authenticated registration, single-pair contention, multi-user transfer, fan-out hot account, sequential transfer journey, capacity ceiling. SLO thresholds: p95 < 1500ms, errors < 2%, serialization retries < 5%.'
+    }
+  }
+}

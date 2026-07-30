@@ -1,0 +1,27 @@
+model {
+
+  monitoring = system 'Observability Stack' {
+    description 'Self-hosted in-cluster monitoring — logs, metrics, traces. Namespace: monitoring.'
+
+    prometheus = o11y 'Prometheus' {
+      technology 'v2.52.0 · 15s scrape'
+      description '4 scrape jobs (15s). Targets: auth, account, transfer, notification services. nats-exporter on :7777. Prometheus annotations from Instana config.'
+      style { icon tech:prometheus }
+    }
+    grafana = o11y 'Grafana' {
+      technology 'v11.2.0 · Banking Dashboard'
+      description '2 panels: request rate by service, p99 latency. Datasources: Prometheus + Jaeger. Admin auth, sign-up disabled.'
+      style { icon tech:grafana }
+    }
+    jaeger = o11y 'Jaeger' {
+      technology 'v1.56 · all-in-one'
+      description 'OTLP receiver on :4317/4318. In-memory storage. UI on :16686.'
+      style { icon tech:jaeger }
+    }
+    otel_collector = o11y 'OTel Collector' {
+      technology 'v0.101.0 · contrib'
+      description 'OTLP receiver → batch processor → Jaeger exporter. gRPC :4317, HTTP :4318.'
+      style { icon tech:jaeger }
+    }
+  }
+}

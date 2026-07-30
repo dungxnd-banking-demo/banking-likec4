@@ -5,12 +5,12 @@ views 'Dynamic' {
   // ═══════════════════════════════════════════════════
   dynamic view transfer_sequence {
     title 'Use Cases / 12.1 Transfer / Send Money — Sequence'
-    description 'End-to-end transfer: request arrives at Kong, routes to api-producer, dispatched over NATS RPC to transfer-service. Serializable transaction with Redis pipeline and JetStream event publishing. Account-service replays events to update the balance read model.'
+    description 'End-to-end transfer: request arrives at Kong, routes to api-producer, dispatched over NATS RPC. SerializableTx with Redis pipeline and JetStream event publishing.'
     variant sequence
 
     include
       customer,
-      banking.caddy,
+      k8s_platform.caddy,
       banking.kong,
       banking.producer,
       banking.nats,
@@ -21,13 +21,13 @@ views 'Dynamic' {
       banking.account,
       banking.notify
 
-    customer -> banking.caddy 'initiate transfer'
-    banking.caddy -> banking.kong 'route'
+    customer -> k8s_platform.caddy 'initiate transfer'
+    k8s_platform.caddy -> banking.kong 'route'
     banking.kong -> banking.producer 'forward to bridge'
     banking.producer -> banking.nats 'map path to subject'
     banking.nats -> banking.transfer 'dispatch request'
 
-    customer <- banking.caddy 'acknowledged'
+    customer <- k8s_platform.caddy 'acknowledged'
 
     try {
       banking.transfer -> banking.postgres 'begin serializable transaction'
@@ -67,7 +67,7 @@ views 'Dynamic' {
 
     include
       customer,
-      banking.caddy,
+      k8s_platform.caddy,
       banking.kong,
       banking.producer,
       banking.nats,
@@ -77,8 +77,8 @@ views 'Dynamic' {
 
     alt {
       when 'register' {
-        customer -> banking.caddy 'submit registration'
-        banking.caddy -> banking.kong 'route'
+        customer -> k8s_platform.caddy 'submit registration'
+        k8s_platform.caddy -> banking.kong 'route'
         banking.kong -> banking.producer 'forward'
         banking.producer -> banking.nats 'map to subject'
         banking.nats -> banking.auth 'dispatch'
@@ -86,11 +86,11 @@ views 'Dynamic' {
         banking.auth -> banking.postgres 'insert user with bcrypt hash'
         banking.auth <- banking.postgres 'user created'
 
-        customer <- banking.caddy 'account number returned'
+        customer <- k8s_platform.caddy 'account number returned'
       }
       else 'login' {
-        customer -> banking.caddy 'submit credentials'
-        banking.caddy -> banking.kong 'route'
+        customer -> k8s_platform.caddy 'submit credentials'
+        k8s_platform.caddy -> banking.kong 'route'
         banking.kong -> banking.producer 'forward'
         banking.producer -> banking.nats 'map to subject'
         banking.nats -> banking.auth 'dispatch'
@@ -108,7 +108,7 @@ views 'Dynamic' {
 
         banking.auth -> banking.auth 'verify password with bcrypt'
         banking.auth -> banking.redis 'create session with expiry'
-        customer <- banking.caddy 'session cookie set'
+        customer <- k8s_platform.caddy 'session cookie set'
       }
     }
   }
@@ -123,7 +123,7 @@ views 'Dynamic' {
 
     include
       customer,
-      banking.caddy,
+      k8s_platform.caddy,
       banking.kong,
       banking.producer,
       banking.nats,
@@ -131,8 +131,8 @@ views 'Dynamic' {
       banking.postgres,
       banking.redis
 
-    customer -> banking.caddy 'request balance'
-    banking.caddy -> banking.kong 'route'
+    customer -> k8s_platform.caddy 'request balance'
+    k8s_platform.caddy -> banking.kong 'route'
     banking.kong -> banking.producer 'forward'
     banking.producer -> banking.nats 'map to subject'
     banking.nats -> banking.account 'dispatch'
@@ -151,7 +151,7 @@ views 'Dynamic' {
       }
     }
 
-    customer <- banking.caddy 'balance returned'
+    customer <- k8s_platform.caddy 'balance returned'
   }
 
   // ═══════════════════════════════════════════════════
@@ -164,13 +164,13 @@ views 'Dynamic' {
 
     include
       customer,
-      banking.caddy,
+      k8s_platform.caddy,
       banking.kong,
       banking.notify,
       banking.redis
 
-    customer -> banking.caddy 'WebSocket upgrade'
-    banking.caddy -> banking.kong 'connect'
+    customer -> k8s_platform.caddy 'WebSocket upgrade'
+    k8s_platform.caddy -> banking.kong 'connect'
     banking.kong -> banking.notify 'forward (least-connections)'
 
     banking.notify -> banking.redis 'validate session'
@@ -198,4 +198,67 @@ views 'Dynamic' {
     }
   }
 
+}
+
+views 'Dynamic / DevSecOps' {
+
+  // ═══════════════════════════════════════════════════
+  //  DevSecOps PR Pipeline — sequence
+  // ═══════════════════════════════════════════════════
+  dynamic view devsecops_pr_sequence {
+    title 'DevSecOps / PR Pipeline — Sequence'
+    description '9 parallel security checks on every PR. 8 scans + aggregated report. Any CRITICAL/HIGH finding blocks merge.'
+    variant sequence
+
+    include
+      devsecops.ci_build,
+      devsecops.security_scanners,
+      github
+
+    devsecops.ci_build -> github 'commit pushed to branch'
+    github -> github 'PR opened'
+
+    parallel {
+      devsecops.security_scanners -> devsecops.ci_build 'Trivy FS (HIGH/CRITICAL)'
+      devsecops.security_scanners -> devsecops.ci_build 'Gitleaks (no leaks)'
+      devsecops.security_scanners -> devsecops.ci_build 'CodeQL (security-extended)'
+      devsecops.security_scanners -> devsecops.ci_build 'Bandit (Python SAST)'
+      devsecops.security_scanners -> devsecops.ci_build 'pip-audit (known vulns)'
+      devsecops.security_scanners -> devsecops.ci_build 'Trivy config (misconfigurations)'
+    }
+
+    alt {
+      when 'all scans pass' {
+        github -> github 'merge allowed'
+      }
+      else 'CRITICAL/HIGH found' {
+        github -> github 'merge blocked'
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════
+  //  GitOps Update — sequence
+  // ═══════════════════════════════════════════════════
+  dynamic view gitops_update_sequence {
+    title 'DevSecOps / GitOps Image Update — Sequence'
+    description 'On push to main: matrix build detects changed services, builds multi-arch images, pushes to GHCR, bumps tags in gitops repo. ArgoCD auto-syncs.'
+    variant sequence
+
+    include
+      devsecops.ci_build,
+      github,
+      ghcr,
+      devsecops.gitops_update,
+      k8s_platform.argocd,
+      banking
+
+    devsecops.ci_build -> github 'detect changed services'
+    devsecops.ci_build -> ghcr 'build + push (tag + latest)'
+    devsecops.gitops_update -> devsecops.ci_build 'commit tag bump to gitops repo'
+    devsecops.gitops_update -> github 'push'
+    github -> k8s_platform.argocd 'helm/ chart updated'
+    k8s_platform.argocd -> banking 'sync manifests'
+    banking -> k8s_platform.argocd 'healthy'
+  }
 }

@@ -1,0 +1,146 @@
+model {
+
+  banking = system 'Banking Application' {
+    description 'Event-driven banking app deployed via Helm chart. React → Caddy → Kong → api-producer → NATS → 4 Go microservices → PostgreSQL + Redis.'
+
+    frontend = webapp 'Frontend :80' {
+      #stateless
+      technology 'React 19 · Vite 8'
+      description 'nginx:alpine + ngx_otel_module. Served through Kong (path `/` → frontend:80). WebSocket with optimistic balance update.'
+      metadata { otel 'ngx_otel_module.so'; routing 'Kong → frontend:80' }
+    }
+
+    kong = apigateway 'Kong 3.9 :8000' {
+      #stateless
+      technology 'Kong · DB-less · ClusterIP'
+      description '''
+**Routes (longest-prefix):**
+- `/` → frontend:80 (round-robin)
+- `/api` → api-producer:8080 (round-robin, health check every 30s)
+- `/ws` → notification:8004 (least-connections)
+
+**Global plugins:** Prometheus, OTel→Instana
+**Per-route:** CORS, rate-limiting (120/min), request-size (4 MB)
+'''
+      metadata { mode 'DB-less'; routes '`/` → frontend, `/api` → producer, `/ws` → notify'; plugins 'CORS, rate-limit, OTel, Prometheus' }
+    }
+
+    producer = bridge 'api-producer :8080' {
+      #stateless
+      technology 'Go · chi · otelhttp'
+      description 'Stateless HTTP→NATS RPC bridge with exact-match path→subject mapping. W3C traceparent propagated via NATS message headers. Nats-Trace-Dest sampled at 1%. 2 replicas with hard pod anti-affinity.'
+      metadata { language 'Go'; rpc_timeout '60s'; trace_sample '1%'; replicas '2' }
+    }
+
+    nats = messagebus 'NATS + JetStream :4222' {
+      #event_driven
+      technology 'NATS 2 · nats/micro'
+      description '''
+Core NATS request/reply (nats/micro) with queue groups for load balancing across replicas.
+
+JetStream stream **BANKING_EVENTS** — 30-day retention, Nats-Msg-Id dedup, 1 Gi PVC.
+
+nats-exporter serves Prometheus metrics on :7777.
+'''
+      metadata { stream 'BANKING_EVENTS'; retention '30 days'; exporter ':7777'; storage '1Gi PVC' }
+    }
+
+    jets = eventstore 'BANKING_EVENTS' {
+      #cqrs #event_driven
+      technology 'NATS JetStream'
+      description 'Durable event log. Durable pull consumer **account-service-balance** (DeliverAllPolicy, MaxAckPending=100).'
+      metadata { consumer 'account-service-balance'; policy 'DeliverAllPolicy' }
+    }
+
+    auth = service 'Auth Service :8001' {
+      technology 'Go · bcrypt · pgxpool'
+      description '''
+**NATS subjects:** banking.auth.{register,login,logout}
+
+Register → bcrypt hash (cost 10), generate 12-digit account number.
+Login → Redis user_cache lookup, DB backfill on miss, bcrypt compare, create session.
+Logout → DEL session from Redis.
+
+2 replicas.
+'''
+      metadata { endpoints 'register, login, logout, health'; pool '15 conns · 30s timeout'; replicas '2' }
+    }
+
+    account = service 'Account Service :8002' {
+      #cqrs
+      technology 'Go · JetStream consumer'
+      description '''
+**NATS subjects:** banking.account.*
+
+User endpoints: me, balance (Redis HGet → DB backfill), lookup.
+Admin endpoints: stats, users (ILIKE search), transfers (JOIN), notifications, user-detail.
+
+JetStream durable pull consumer replays events on cold start to rebuild the balance hash in Redis.
+2 replicas.
+'''
+      metadata { endpoints 'me, balance, lookup, stats, users, transfers, notifications, user-detail'; read_model 'Redis hash → DB fallback'; replicas '2' }
+    }
+
+    transfer = service 'Transfer Service :8003' {
+      #cqrs
+      technology 'Go · SerializableTx'
+      description '''
+**NATS subject:** banking.transfer.transfer
+
+Three-phase CQRS write:
+1. PostgreSQL Serializable transaction — lock rows ORDER BY id, atomic debit+credit, 5× jitter retry on conflict
+2. Post-commit Redis pipeline — 5 commands in 1 RTT (invalidate caches, update balances, publish notification)
+3. JetStream publish — event with Nats-Msg-Id dedup
+
+Amounts masked with HMAC-SHA256.
+2 replicas.
+'''
+      metadata { isolation 'SERIALIZABLE · 5× jitter'; pipeline '5-cmd 1 RTT'; masking 'HMAC-SHA256'; replicas '2' }
+    }
+
+    notify = service 'Notification Service :8004' {
+      #realtime
+      technology 'Go · coder/websocket'
+      description '''
+**NATS subjects:** banking.notification.*
+
+NATS RPC: fetch last 50 notifications, ack (mark read).
+WebSocket: coder/websocket, ?session= auth, presence heartbeat TTL/3.
+Redis pub/sub: SUBSCRIBE notify:{uid} → push JSON frame to client.
+
+2 replicas.
+'''
+      metadata { ws_lib 'coder/websocket'; presence 'TTL/3 heartbeat (20s)'; replicas '2' }
+    }
+
+    postgres = db 'PostgreSQL 18' {
+      #stateful
+      technology 'pgx · 5Gi PV'
+      description '''
+**Tables:**
+- users (BIGINT, UNIQUE phone/account_number/username, balance ≥ 0)
+- transfers (BIGINT FK, amount > 0, composite DESC index)
+- notifications (BIGINT FK, is_read)
+
+3 Golang-migrate steps. StatefulSet with volumeClaimTemplate.
+'''
+      metadata { storage '5Gi'; tables 'users, transfers, notifications'; pool '15 · 30s timeout' }
+    }
+
+    redis = kvstore 'Redis 8' {
+      #stateful
+      technology 'go-redis · 1Gi PV'
+      description '''
+**Keys:**
+- session:{sid} (24h TTL)
+- user_cache:{phone} (5 min TTL)
+- balance hash (CQRS read model, no TTL)
+- presence:{uid} (60s TTL)
+- notify:{uid} pub/sub channel
+
+StatefulSet with volumeClaimTemplate.
+'''
+      metadata { storage '1Gi'; keys 'session, user_cache, balance, presence, notify' }
+    }
+  }
+}

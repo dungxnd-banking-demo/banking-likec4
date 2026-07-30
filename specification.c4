@@ -75,8 +75,24 @@ specification {
     description 'Observability — metrics, logs, traces, dashboards.'
     style { icon tech:grafana }
   }
+  element pipeline {
+    notation 'Pipeline'
+    description 'CI/CD pipeline — build, scan, test, deploy.'
+  }
+  element scanner {
+    notation 'Scanner'
+    description 'Security scanner — SAST, secrets, dependencies, config.'
+  }
+  element cn {
+    notation 'CNI'
+    description 'Container network interface — pod networking, service routing.'
+  }
+  element bastion {
+    notation 'Bastion'
+    description 'Zero-trust SSH bastion with session recording and audit.'
+  }
 
-  // ── Relationship kinds with visual differentiation ──
+  // ── Relationship kinds ──
   relationship https {
     line solid;
     color secondary;
@@ -147,6 +163,20 @@ specification {
     title 'OTLP/gRPC'
     description 'OpenTelemetry Protocol — traces, metrics via OTLP/gRPC on :4317.'
   }
+  relationship acme {
+    line dotted;
+    color green;
+    head normal;
+    title 'ACME'
+    description 'Let\'s Encrypt ACME HTTP-01 challenge for TLS certificate automation.'
+  }
+  relationship scan {
+    line dotted;
+    color amber;
+    head normal;
+    title 'Scan'
+    description 'Security scanning — SAST, secrets, dependencies, misconfigurations.'
+  }
 
   // ── Tags ──
   tag cqrs         { color #1b5e20 }
@@ -154,6 +184,7 @@ specification {
   tag stateful
   tag stateless
   tag realtime
+  tag security
 
   // ── Deployment node kinds ──
   deploymentNode cloud {
@@ -172,6 +203,10 @@ specification {
     notation 'EC2'
     technology 'AWS EC2 · Spot'
     description 'Spot EC2 instance running Ubuntu 26.04, part of a K8s cluster.'
+  }
+  deploymentNode sg {
+    notation 'SG'
+    description 'AWS Security Group — phased ingress rules (provisioning → lockdown).'
   }
 
   // ── Colors ──

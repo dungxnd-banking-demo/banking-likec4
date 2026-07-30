@@ -1,0 +1,79 @@
+model {
+
+  k8s_platform = system 'K8s Platform' {
+    description '4-node K8s cluster on AWS EC2 (ap-southeast-1). Single subnet, Cilium eBPF CNI, Rancher Local Path Provisioner, phased Security Group. Ansible 9-play bootstrapping.'
+    style { icon tech:kubernetes }
+
+    control_plane = system 'Control Plane' {
+      description 'kube-apiserver (CIS audit logging), etcd, kube-controller-manager, kube-scheduler. All static pods on master node.'
+    }
+
+    cilium = cn 'Cilium CNI' {
+      technology 'eBPF · kube-proxy replacement'
+      description 'Cilium 1.19.6. kubeProxyReplacement=true — ClusterIP and NodePort handled entirely in eBPF. No iptables NAT chains. Pod CIDR 192.168.0.0/16.'
+      style { icon https://cdn.simpleicons.org/cilium }
+    }
+
+    local_path = cn 'Local Path Provisioner' {
+      technology 'Rancher v0.0.36'
+      description 'Default StorageClass. Provisions hostPath PVs under `/opt/local-path-provisioner/`. Used by PostgreSQL (5Gi), Redis (1Gi), NATS JetStream (1Gi), SeaweedFS (10Gi), Warpgate SQLite (10Gi).'
+      style { shape storage }
+    }
+
+    argocd = system 'ArgoCD' {
+      technology 'GitOps Controller'
+      description 'Watches banking-demo-gitops/helm/. Auto-sync: prune + selfHeal, 3-retry backoff, server-side apply for Kong annotations. Deploys both banking-demo and Warpgate Applications.'
+      style { icon tech:argocd }
+    }
+
+    caddy = proxy 'Caddy :80,443,2222' {
+      #stateless
+      technology 'Caddy 2 · hostPort'
+      description '''
+Pinned to control-plane node (nodeSelector + tolerates taint).
+Uses **hostPort 80/443/2222** — no Ingress, no LoadBalancer, no NodePort.
+TLS via Let\'s Encrypt (HTTP-01 challenge).
+
+Reverse-proxies to:
+- Kong (ClusterIP, app traffic)
+- Warpgate admin UI + SSH proxy
+'''
+      metadata { ports 'hostPort 80, 443, 2222'; tls 'Let\'s Encrypt HTTP-01' }
+    }
+
+    sg = system 'Security Group' {
+      #security
+      technology 'AWS SG · Phased'
+      description 'Two-phase ruleset: provisioning (SSH:22 + kube-api:6443 from admin CIDR) → lockdown (only 80/443/2222 from 0.0.0.0/0). All node-to-node traffic allowed (self-ref rule).'
+    }
+
+    audit = system 'Audit Policy' {
+      #security
+      technology 'CIS-aligned'
+      description 'kube-apiserver audit logging at /var/log/kubernetes/audit/. RequestResponse level for pods/deployments/netpols/RBAC/admission. Metadata only for secrets/configmaps. 30-day rotation.'
+    }
+
+    warpgate = bastion 'Warpgate' {
+      #security
+      technology 'OCI Helm · v0.27.0'
+      description '''
+Zero-trust SSH bastion on dedicated node (tainted `role=security:NoSchedule`).
+Post-lockdown sole management entry point.
+
+Services:
+- SSH proxy on :2222 (session recording + audit)
+- Admin UI on :8888
+- K8s authenticating proxy on :8443
+- SQLite backend (10 Gi PVC)
+- 4 SSH targets + 1 Kubernetes target seeded via API
+'''
+      metadata { pvc '10Gi SQLite'; namespace 'warpgate'; chart 'ghcr.io/warp-tech/helm-charts/warpgate' }
+    }
+
+    netpol = system 'Network Policies' {
+      #security
+      technology 'default-deny + 7 allow-lists'
+      description 'Baseline: deny all ingress. Allow: DNS egress, external→Caddy(80/443/2222), Caddy→Kong(8000), Kong→backends, backends→Postgres/Redis/NATS, all egress.'
+    }
+  }
+}

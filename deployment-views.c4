@@ -1,11 +1,16 @@
 views 'Deployment' {
 
   // ═══════════════════════════════════════════════════
-  //  AWS Infrastructure — physical topology
+  //  AWS Infrastructure
   // ═══════════════════════════════════════════════════
   deployment view deployment_infra {
     title 'Infra / AWS EC2 Cluster'
-    description 'ap-southeast-1 default VPC. 3 × t3a.medium (master + 2 workers, 2 vCPU/4 GiB each) + 1 × t3a.small (warpgate, 2 vCPU/2 GiB). All spot instances, 20 GB gp3 root volumes. Single Security Group with two-phase rules (provisioning → lockdown). Single AZ, single public subnet.'
+    description '''
+4-node K8s cluster in ap-southeast-1 default VPC.
+3 × t3a.medium (2 vCPU, 4 GiB) + 1 × t3a.small (2 vCPU, 2 GiB).
+All spot instances, 20 GB gp3 root, single AZ, single public subnet.
+Cilium eBPF mesh — every node connects to every node.
+'''
 
     include aws.vpc.*
     includeAncestors: true
@@ -16,18 +21,20 @@ views 'Deployment' {
   }
 
   // ═══════════════════════════════════════════════════
-  //  Application pod distribution
+  //  Pod Distribution
   // ═══════════════════════════════════════════════════
   deployment view deployment_app_pods {
     title 'Infra / Pod Distribution'
-    description 'Worker-1 handles ingress + messaging: Kong, Frontend, api-producer (2 replicas, anti-affinity), NATS (1Gi PVC). Worker-2 handles services + data: 4 Go microservices (2 replicas each, hard pod anti-affinity), PostgreSQL (5Gi PV), Redis (1Gi PV). NetPol: default-deny + 7 allow-lists.'
+    description 'Worker-1: ingress + messaging (Kong, Frontend, api-producer ×2, NATS 1Gi PVC). Worker-2: services + data (4 Go services ×2, PostgreSQL 5Gi, Redis 1Gi). NetPol: default-deny + 7 allow-lists.'
 
     include
+      aws.vpc.master.*,
       aws.vpc.worker1.*,
       aws.vpc.worker2.*
     includeAncestors: true
 
     style aws { color bank_indigo }
+    style aws.vpc.master { color bank_green }
     style aws.vpc.worker1 { color sky }
     style aws.vpc.worker2 { color amber }
   }
@@ -37,7 +44,7 @@ views 'Deployment' {
   // ═══════════════════════════════════════════════════
   deployment view deployment_security {
     title 'Security / Post-Lockdown'
-    description 'After `make lockdown`: SSH(22) and kube-api(6443) rules removed from admin CIDR. Only ports open to internet: 80/443 (Caddy, TLS), 2222 (Warpgate SSH proxy). All management via `ssh -p 2222`. Warpgate on dedicated node with `NoSchedule` taint.'
+    description 'After `make lockdown`: SSH(22) + kube-api(6443) closed. Only 80/443 (Caddy) + 2222 (Warpgate SSH) open to internet. All management via `ssh -p 2222`. Warpgate on dedicated node with NoSchedule taint.'
 
     include aws.vpc.master, aws.vpc.warpgate, aws.vpc.worker1, aws.vpc.worker2
     includeAncestors: true
@@ -46,28 +53,4 @@ views 'Deployment' {
     style aws.vpc.master { color bank_green }
     style aws.vpc.warpgate { color bank_red }
   }
-
-  // ═══════════════════════════════════════════════════
-  //  Audit Logging Pipeline — full detail
-  // ═══════════════════════════════════════════════════
-  deployment view deployment_audit {
-    title 'Security / Audit Pipeline'
-    description '''
-Four-stage pipeline, all on the control-plane node
-(disabled by default — `audit.enabled: false` in Helm values).
-
-Data flow: kube-apiserver → Vector → Parseable → SeaweedFS
-'''
-
-    include
-      aws.vpc.master.kubeApiAudit,
-      aws.vpc.master.vector,
-      aws.vpc.master.parseable,
-      aws.vpc.master.seaweedfs
-    includeAncestors: true
-
-    style aws { color bank_indigo }
-    style aws.vpc.master { color bank_green }
-  }
-
 }

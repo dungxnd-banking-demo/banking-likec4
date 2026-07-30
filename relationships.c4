@@ -1,0 +1,103 @@
+model {
+
+  // ═══════════════════════════════════════════════════
+  //  CROSS-CUTTING RELATIONSHIPS
+  // ═══════════════════════════════════════════════════
+
+  // ── External entry ──
+  customer -[https]-> k8s_platform.caddy 'opens app'
+  duckdns -[https]-> k8s_platform.caddy 'A-record→public IP'
+  letsencrypt -[acme]-> k8s_platform.caddy 'HTTP-01 challenge'
+
+  // ── Platform → App routing ──
+  k8s_platform.caddy -[https]-> banking.kong 'all routes'
+
+  // ── Warpgate (management) ──
+  operator -[gitops]-> k8s_platform.warpgate 'ssh -p 2222'
+  k8s_platform.caddy -> k8s_platform.warpgate 'admin UI + SSH'
+
+  // ── Platform internals ──
+  k8s_platform.control_plane -> k8s_platform.cilium 'pod networking'
+  k8s_platform.argocd -[gitops]-> banking 'sync Helm chart'
+
+  // ── Kong routes by path ──
+  banking.kong -[https]-> banking.frontend 'path: `/`'
+  banking.kong -[https]-> banking.producer 'path: `/api`' {
+    metadata { load_balanced 'round-robin'; health_check 'every 30s' }
+  }
+  banking.kong -[websocket_cn]-> banking.notify 'path: `/ws`' {
+    metadata { session '?session= auth'; lb 'least-connections' }
+  }
+
+  // ── api-producer → NATS ──
+  banking.producer -[nat_rpc]-> banking.nats 'path→subject map' {
+    metadata { trace_context 'W3C traceparent'; sample_rate '1%' }
+  }
+
+  // ── NATS → microservices ──
+  banking.nats -[nat_rpc]-> banking.auth 'banking.auth.*'
+  banking.nats -[nat_rpc]-> banking.account 'banking.account.*'
+  banking.nats -[nat_rpc]-> banking.transfer 'banking.transfer.transfer'
+  banking.nats -[nat_rpc]-> banking.notify 'banking.notification.*'
+
+  // ── JetStream event flow (CQRS) ──
+  banking.transfer -[jetstream_evt]-> banking.jets 'banking.events.transfer.completed' {
+    metadata { dedup 'Nats-Msg-Id'; stream 'BANKING_EVENTS' }
+  }
+  banking.jets -[jetstream_evt]-> banking.account 'replay → balance hash' {
+    metadata { consumer 'account-service-balance'; policy 'DeliverAllPolicy' }
+  }
+
+  // ── SQL ──
+  banking.auth -[sql_tx]-> banking.postgres 'users'
+  banking.account -[sql_tx]-> banking.postgres 'queries + JOINs'
+  banking.transfer -[sql_tx]-> banking.postgres 'SerializableTx' {
+    metadata { isolation 'SERIALIZABLE'; retries '5× jitter'; lock 'ORDER BY id' }
+  }
+  banking.notify -[sql_tx]-> banking.postgres 'notifications'
+
+  // ── Redis ──
+  banking.auth -[redis_cmd]-> banking.redis 'sessions + cache'
+  banking.account -[redis_cmd]-> banking.redis 'balance hash (CQRS)'
+  banking.transfer -[redis_cmd]-> banking.redis '5-cmd pipeline' {
+    metadata { commands 'DEL,HSET,PUBLISH'; rtt '1' }
+  }
+  banking.notify -[redis_cmd]-> banking.redis 'SUBSCRIBE notify:{uid}'
+
+  // ── Observability ──
+  monitoring.prometheus -[https]-> banking.auth 'scrape /metrics'
+  monitoring.prometheus -[https]-> banking.account 'scrape /metrics'
+  monitoring.prometheus -[https]-> banking.transfer 'scrape /metrics'
+  monitoring.prometheus -[https]-> banking.notify 'scrape /metrics'
+  monitoring.prometheus -[https]-> banking.producer 'scrape /metrics'
+  monitoring.prometheus -[https]-> banking.nats 'nats-exporter :7777'
+  monitoring.grafana -> monitoring.prometheus 'datasource'
+  monitoring.grafana -> monitoring.jaeger 'datasource'
+  banking.auth -[oltp_grpc]-> monitoring.otel_collector 'traces'
+  banking.account -[oltp_grpc]-> monitoring.otel_collector 'traces'
+  banking.transfer -[oltp_grpc]-> monitoring.otel_collector 'traces'
+  banking.notify -[oltp_grpc]-> monitoring.otel_collector 'traces'
+  banking.producer -[oltp_grpc]-> monitoring.otel_collector 'traces'
+  monitoring.otel_collector -> monitoring.jaeger 'export traces'
+
+  instana -[oltp_grpc]-> banking.auth 'OTLP :4317'
+  instana -[oltp_grpc]-> banking.account 'OTLP :4317'
+  instana -[oltp_grpc]-> banking.transfer 'OTLP :4317'
+  instana -[oltp_grpc]-> banking.notify 'OTLP :4317'
+  instana -[oltp_grpc]-> banking.producer 'OTLP :4317'
+
+  // ── CI/CD pipeline ──
+  devsecops.ci_build -[push_image]-> github 'reads source'
+  devsecops.ci_build -[push_image]-> ghcr 'push images'
+  devsecops.security_scanners -[scan]-> devsecops.ci_build 'gate'
+  github -[gitops]-> k8s_platform.argocd 'helm/ chart'
+  ghcr -[push_image]-> k8s_platform.argocd 'pull images'
+  devsecops.gitops_update -[gitops]-> github 'commit tag bump'
+  devsecops.perf_test -> banking 'k6 scenarios'
+
+  // ── Infrastructure provisioning ──
+  operator -[provision]-> infra_repo 'make all'
+  infra_repo -[provision]-> k8s_platform 'Terraform + Ansible'
+  infra_repo -[provision]-> k8s_platform.argocd 'install ArgoCD'
+
+}
