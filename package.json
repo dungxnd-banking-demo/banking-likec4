@@ -1,0 +1,16 @@
+{
+  "name": "banking-demo-likec4",
+  "private": true,
+  "scripts": {
+    "dev": "likec4 serve",
+    "build": "likec4 build -o ./dist --base /banking-likec4/",
+    "preview": "likec4 preview -o ./dist",
+    "export": "likec4 export png -o ./dist/png",
+    "validate": "likec4 validate",
+    "format": "likec4 format",
+    "format:check": "likec4 format --check"
+  },
+  "devDependencies": {
+    "likec4": "^1.59.2"
+  }
+}

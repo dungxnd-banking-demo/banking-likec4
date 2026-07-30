@@ -1,0 +1,19 @@
+{
+  "$schema": "https://likec4.dev/schemas/config.json",
+  "name": "banking-demo",
+  "title": "Banking Demo — Architecture",
+  "metadata": {
+    "owner": "platform-team",
+    "domain": "banking"
+  },
+  "landingPage": {
+    "include": ["index", "banking-system", "api-request-flow", "transfer-flow", "deployment-infra"]
+  },
+  "styles": {
+    "defaults": {
+      "relationship": {
+        "arrow": "normal"
+      }
+    }
+  }
+}

@@ -1,0 +1,82 @@
+views {
+
+  deployment view deployment-infra {
+    title "AWS Infrastructure — EC2 + K8s Cluster"
+    description """
+        **4-node Kubernetes cluster on AWS EC2 (ap-southeast-1).**
+
+        1 master + 2 workers + 1 warpgate node. Cilium CNI with kube-proxy replacement.
+        Caddy handles all external ingress on hostPort 80/443/2222.
+        """
+
+    include aws.vpc.*
+    includeAncestors: true
+
+    style aws {
+      color bank-indigo
+    }
+  }
+
+  deployment view deployment-app-pods {
+    title "Application Pods — Distribution Across Workers"
+    description """
+        **How banking containers are distributed across the 2 worker nodes.**
+
+        Worker-1: Frontend, Kong, api-producer, NATS (entry + messaging layer).
+        Worker-2: All consumer services, PostgreSQL, Redis (processing + data layer).
+        """
+
+    include
+      aws.vpc.worker1.*,
+      aws.vpc.worker2.*
+    includeAncestors: true
+
+    style aws {
+      color bank-indigo
+    }
+  }
+
+  deployment view deployment-security {
+    title "Security Posture — Post-Lockdown"
+    description """
+        **After make all completes, the bridge is burned.**
+
+        Only ports 80 (HTTP), 443 (HTTPS), and 2222 (Warpgate SSH proxy) are open from 0.0.0.0/0.
+        Direct SSH(22) and kube-apiserver(6443) are closed. Management through Warpgate only.
+        """
+
+    include aws.vpc.master, aws.vpc.warpgateNode, aws.vpc.worker1, aws.vpc.worker2
+    includeAncestors: true
+
+    style aws {
+      color bank-indigo
+    }
+    style aws.vpc.master {
+      color bank-green
+    }
+    style aws.vpc.warpgateNode {
+      color bank-red
+    }
+  }
+
+  deployment view deployment-audit {
+    title "Audit Logging Pipeline"
+    description """
+        **Kube-apiserver audit logs → Vector → Parseable → SeaweedFS.**
+
+        Vector (DaemonSet on master) reads /var/log/kubernetes/audit/*.log via hostPath,
+        ships JSON-parsed records to Parseable (columnar log store, SQL UI).
+        Parseable stores as Parquet on SeaweedFS (S3-compatible, 10Gi PVC).
+        """
+
+    include aws.vpc.master
+    includeAncestors: true
+
+    style aws {
+      color bank-indigo
+    }
+    style aws.vpc.master {
+      color bank-green
+    }
+  }
+}

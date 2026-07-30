@@ -1,0 +1,203 @@
+model {
+
+  // ── Actors ──
+  customer = actor 'Customer' {
+    description 'End user with a web browser. Opens the app, logs in, checks balance, sends transfers, receives real-time notifications.'
+  }
+  operator = operator 'Operations Engineer' {
+    description 'Manages infrastructure and deploys via GitOps. Accesses cluster through Warpgate SSH proxy.'
+  }
+
+  // ── External Systems ──
+  github = system 'GitHub' {
+    description 'Hosts source code, Helm chart + ArgoCD manifests, and runs CI pipelines via GitHub Actions.'
+  }
+  ghcr = system 'GHCR' {
+    description 'GitHub Container Registry — stores Docker images built by CI.'
+    technology 'OCI Registry'
+  }
+  duckdns = system 'DuckDNS' {
+    description 'Free dynamic DNS service. Keeps the domain A-record pointed at the EC2 public IP.'
+    technology 'Dynamic DNS'
+  }
+
+  // ── Infrastructure repo ──
+  infraRepo = system 'bankind-demo-infra' {
+    description 'Terraform + Ansible: provisions 4 EC2 instances, bootstraps K8s with kubeadm + Cilium, installs ArgoCD.'
+    technology 'Terraform · Ansible'
+  }
+
+  // ── Banking System ──
+  banking = system 'Banking System' {
+    description 'Full-stack event-driven banking application deployed on AWS EC2 with Kubernetes.'
+
+    caddy = proxy 'Caddy' {
+      #gateway-tag
+      title 'Caddy 2.11'
+      description 'Edge proxy on hostPort 80/443/2222. TLS termination via Let\'s Encrypt, HTTP→HTTPS redirect, reverse-proxy to Kong and Warpgate.'
+      technology 'Caddy Server'
+    }
+
+    frontend = webapp 'Frontend SPA' {
+      description 'React 19 + Vite + Tailwind CSS v4. Nginx serves the SPA; proxies /api/* and /ws to Kong.'
+      technology 'React 19'
+    }
+
+    kong = gateway 'Kong Gateway' {
+      #gateway-tag
+      title 'Kong 3.9'
+      description 'API gateway running DB-less. Routes /api/* to api-producer and /ws to notification-service. CORS plugin on all routes.'
+      technology 'Kong Gateway'
+    }
+
+    producer = bridge 'API Producer' {
+      title 'api-producer'
+      description 'Stateless HTTP → NATS RPC proxy. Maps HTTP paths to NATS subjects. Unknown paths return 404 without touching NATS.'
+      technology 'Go 1.26'
+    }
+
+    nats = messagebus 'NATS' {
+      #event-driven
+      title 'NATS 2 + JetStream'
+      description 'Core NATS provides synchronous request/reply via nats/micro framework. JetStream provides the durable BANKING_EVENTS event log (30-day retention).'
+      technology 'NATS'
+    }
+
+    jets = eventbus 'JetStream Event Log' {
+      #cqrs #event-driven
+      title 'BANKING_EVENTS'
+      description 'Durable event stream capturing banking.events.transfer.completed. Balance projection consumer replays on cold start to rebuild Redis cache.'
+      technology 'NATS JetStream'
+    }
+
+    auth = microservice 'Auth Service' {
+      title 'auth-service :8001'
+      description 'Register and login. bcrypt password hashing. Session token (Redis, 24h TTL). User cache for login fast-path.'
+      technology 'Go 1.26'
+    }
+
+    account = microservice 'Account Service' {
+      #cqrs
+      title 'account-service :8002'
+      description 'Balance queries (Redis hash first, DB fallback), profile, lookup, admin actions. Runs balance projection consumer against BANKING_EVENTS stream.'
+      technology 'Go 1.26'
+    }
+
+    transfer = microservice 'Transfer Service' {
+      #cqrs
+      title 'transfer-service :8003'
+      description 'Atomic balance transfer: SERIALIZABLE isolation + deterministic lock ordering. Post-commit Redis pipeline + JetStream publish with dedup.'
+      technology 'Go 1.26'
+    }
+
+    notify = microservice 'Notification Service' {
+      title 'notification-service :8004'
+      description 'Notification history + live WebSocket push. Listens on notify:{userID} Redis pub/sub for real-time transfer events.'
+      technology 'Go 1.26'
+    }
+
+    postgres = database 'PostgreSQL' {
+      title 'PostgreSQL 18'
+      description 'Primary relational database: users, transfers, notifications tables. Schema managed by golang-migrate.'
+      technology 'PostgreSQL 18'
+    }
+
+    redis = cache 'Redis' {
+      title 'Redis 8'
+      description 'Multi-purpose cache and pub/sub. session:{sid}, user_cache:phone, balance hash, notify:{uid} pub/sub channel.'
+      technology 'Redis 8'
+    }
+
+    monitoring = observability 'Monitoring Stack' {
+      description 'Self-hosted Prometheus, Grafana, Jaeger, OTel Collector. Every service exposes /metrics and structured JSON logs.'
+      technology 'Prometheus · Grafana · Jaeger'
+    }
+
+    instana = observability 'Instana' {
+      description 'Production observability backend. Host agent collects OTLP/gRPC traces on :4317.'
+      technology 'Instana'
+    }
+
+    ci = system 'CI Pipeline' {
+      description 'GitHub Actions: Stage 1 builds + pushes Docker images to GHCR. Stage 3 bumps image tags in banking-demo-gitops.'
+      technology 'GitHub Actions'
+    }
+  }
+
+  // ── ArgoCD is outside banking — lives between GitOps and the cluster ──
+  argocd = system 'ArgoCD' {
+    description 'GitOps controller. Watches banking-demo-gitops/main/helm/, auto-syncs to cluster with prune + selfHeal.'
+    technology 'ArgoCD'
+  }
+
+  // ── Relationships ──
+
+  // Customer ↔ Banking
+  customer -[http]-> banking.caddy 'opens app in browser'
+
+  // Entry layer
+  banking.caddy -[http]-> banking.frontend 'serves SPA'
+  banking.caddy -[http]-> banking.kong 'reverse_proxy'
+  banking.frontend -[http]-> banking.kong '/api/* and /ws'
+
+  // Kong → services
+  banking.kong -[http]-> banking.producer '/api/* routes'
+  banking.kong -[ws]-> banking.notify '/ws direct route'
+
+  // api-producer → NATS
+  banking.producer -[nats-rpc]-> banking.nats 'maps HTTP path → NATS subject'
+
+  // NATS → consumer services
+  banking.nats -[nats-rpc]-> banking.auth 'banking.auth.*'
+  banking.nats -[nats-rpc]-> banking.account 'banking.account.*'
+  banking.nats -[nats-rpc]-> banking.transfer 'banking.transfer.*'
+  banking.nats -[nats-rpc]-> banking.notify 'banking.notification.*'
+
+  // Transfer → JetStream → Account (CQRS)
+  banking.transfer -[nats-jetstream]-> banking.jets 'banking.events.transfer.completed'
+  banking.jets -[nats-jetstream]-> banking.account 'durable pull consumer (DeliverAll)'
+
+  // Consumer services → PostgreSQL
+  banking.auth -[sql]-> banking.postgres 'users table'
+  banking.account -[sql]-> banking.postgres 'queries'
+  banking.transfer -[sql]-> banking.postgres 'atomic transfer tx'
+  banking.notify -[sql]-> banking.postgres 'notifications table'
+
+  // Consumer services → Redis
+  banking.auth -[redis-pubsub]-> banking.redis 'session + user_cache'
+  banking.account -[redis-pubsub]-> banking.redis 'balance hash (CQRS read model)'
+  banking.transfer -[redis-pubsub]-> banking.redis 'DEL cache, HSET balance, PUBLISH notify'
+  banking.notify -[redis-pubsub]-> banking.redis 'SUBSCRIBE notify:{uid} → WebSocket'
+
+  // Monitoring scrapes metrics
+  banking.monitoring -[http]-> banking.auth 'scrape /metrics'
+  banking.monitoring -[http]-> banking.account 'scrape /metrics'
+  banking.monitoring -[http]-> banking.transfer 'scrape /metrics'
+  banking.monitoring -[http]-> banking.notify 'scrape /metrics'
+  banking.monitoring -[http]-> banking.producer 'scrape /metrics'
+  banking.monitoring -[http]-> banking.nats 'scrape :8222'
+
+  // Instana collects OTLP traces
+  banking.instana -[http]-> banking.auth 'OTLP/gRPC :4317'
+  banking.instana -[http]-> banking.account 'OTLP/gRPC :4317'
+  banking.instana -[http]-> banking.transfer 'OTLP/gRPC :4317'
+  banking.instana -[http]-> banking.notify 'OTLP/gRPC :4317'
+  banking.instana -[http]-> banking.producer 'OTLP/gRPC :4317'
+
+  // CI/CD pipeline
+  banking.ci -[deploy]-> github 'reads source'
+  banking.ci -[deploy]-> ghcr 'pushes images'
+  github -[sync-gitops]-> argocd 'watches helm/ chart'
+  ghcr -[deploy]-> argocd 'pulls images'
+  argocd -[deploy]-> banking 'syncs manifests'
+
+  // DuckDNS → Caddy
+  duckdns -[http]-> banking.caddy 'A-record → public IP'
+
+  // Operator management
+  operator -[deploy]-> argocd 'applies Applications'
+
+  // Infrastructure provisioning
+  infraRepo -[provisions]-> banking 'provisions EC2 + K8s'
+  infraRepo -[deploy]-> argocd 'installs ArgoCD'
+}

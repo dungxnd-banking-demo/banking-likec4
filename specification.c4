@@ -1,0 +1,117 @@
+specification {
+  // ── People & Actors ──
+  element actor {
+    style { shape person }
+  }
+  element operator {
+    style { shape person }
+  }
+
+  // ── System-level ──
+  element system
+
+  // ── Container-level ──
+  element gateway {
+    style { icon tech:kong }
+  }
+  element proxy
+  element webapp {
+    style { shape browser }
+  }
+  element bridge {
+    style { icon tech:go }
+  }
+  element microservice {
+    style { icon tech:go }
+  }
+  element messagebus {
+    style { icon tech:nats-icon }
+  }
+  element eventbus {
+    style { icon tech:nats-icon }
+  }
+  element cache {
+    style { icon tech:redis; shape storage }
+  }
+  element database {
+    style { icon tech:postgresql; shape storage }
+  }
+  element observability
+
+  // ── Tags ──
+  tag next
+  tag live
+  tag deprecated
+  tag cqrs
+  tag event-driven
+  tag gateway-tag
+
+  // ── Relationship kinds ──
+  relationship http {
+    title 'HTTPS'
+    technology 'HTTP/1.1'
+    line solid
+    color secondary
+  }
+  relationship nats-rpc {
+    title 'NATS RPC'
+    technology 'NATS Core'
+    line solid
+    color green
+  }
+  relationship nats-jetstream {
+    title 'JetStream'
+    technology 'NATS JetStream'
+    line dashed
+    color amber
+  }
+  relationship ws {
+    title 'WebSocket'
+    technology 'WSS'
+    line solid
+    color sky
+  }
+  relationship redis-pubsub {
+    title 'Redis Pub/Sub'
+    technology 'Redis'
+    line dashed
+    color red
+  }
+  relationship sql {
+    title 'SQL'
+    technology 'PostgreSQL'
+    line solid
+    color gray
+  }
+  relationship deploy {
+    title 'Deploys'
+    line dotted
+    color muted
+  }
+  relationship sync-gitops {
+    title 'GitOps Sync'
+    technology 'ArgoCD'
+    line solid
+    color sky
+  }
+  relationship provisions {
+    title 'Provisions'
+    technology 'Terraform / Ansible'
+    line dotted
+    color muted
+  }
+
+  // ── Deployment node kinds ──
+  deploymentNode cloud
+  deploymentNode vpc
+  deploymentNode ec2 {
+    notation 'EC2 Instance'
+    technology 'AWS EC2'
+  }
+
+  // ── Colors ──
+  color bank-green #2e7d32
+  color bank-indigo #283593
+  color bank-amber #f57c00
+  color bank-red #c62828
+}

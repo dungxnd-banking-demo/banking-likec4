@@ -1,0 +1,85 @@
+deployment {
+
+  aws = cloud 'AWS' {
+    title 'AWS ap-southeast-1'
+
+    vpc = vpc 'Banking VPC' {
+      description 'Single VPC with public subnet. 4 EC2 instances.'
+
+      securityGroup = ec2 'Security Group' {
+        description 'Phased SG: provisioning (SSH + kube-api open), lockdown (only 80/443/2222 from 0.0.0.0/0).'
+        technology 'AWS Security Group'
+      }
+
+      master = ec2 'Master Node' {
+        title 'master (t3a.medium)'
+        description 'K8s control-plane. Caddy hostPort 80/443/2222, ArgoCD, Cilium CNI kube-proxy replacement.'
+        technology 'Ubuntu 24.04'
+      }
+
+      worker1 = ec2 'Worker Node 1' {
+        title 'worker-1 (t3a.medium)'
+        description 'Runs app pods — entry + messaging layer.'
+        technology 'Ubuntu 24.04'
+      }
+
+      worker2 = ec2 'Worker Node 2' {
+        title 'worker-2 (t3a.medium)'
+        description 'Runs app pods — services + data layer.'
+        technology 'Ubuntu 24.04'
+      }
+
+      warpgateNode = ec2 'Warpgate Node' {
+        title 'warpgate-node (t3a.small)'
+        description 'Dedicated security node. Tainted role=security:NoSchedule. Warpgate SSH proxy + admin UI + K8s proxy.'
+        technology 'Ubuntu 24.04'
+      }
+    }
+  }
+}
+
+// ── Deploy banking containers onto EC2 nodes ──
+deployment {
+  extend aws.vpc.master {
+    caddyInstance = instanceOf banking.caddy {
+      title 'Caddy (hostPort)'
+      description 'Deployed as K8s Deployment with hostNetwork:true. Binds hostPort 80/443/2222.'
+    }
+  }
+
+  extend aws.vpc.worker1 {
+    frontendInstance = instanceOf banking.frontend {
+      title 'Frontend SPA (nginx)'
+    }
+    kongInstance = instanceOf banking.kong {
+      title 'Kong Gateway (ClusterIP)'
+    }
+    producerInstance = instanceOf banking.producer {
+      title 'api-producer'
+    }
+    natsInstance = instanceOf banking.nats {
+      title 'NATS + JetStream'
+    }
+  }
+
+  extend aws.vpc.worker2 {
+    authInstance = instanceOf banking.auth {
+      title 'auth-service'
+    }
+    accountInstance = instanceOf banking.account {
+      title 'account-service'
+    }
+    transferInstance = instanceOf banking.transfer {
+      title 'transfer-service'
+    }
+    notifyInstance = instanceOf banking.notify {
+      title 'notification-service'
+    }
+    postgresInstance = instanceOf banking.postgres {
+      title 'PostgreSQL'
+    }
+    redisInstance = instanceOf banking.redis {
+      title 'Redis'
+    }
+  }
+}

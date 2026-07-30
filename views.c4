@@ -1,0 +1,300 @@
+views {
+
+  // ── 1. System Landscape (C4 Level 1) — unscoped, uses FQN ──
+  view index {
+    title 'System Landscape'
+    description '''
+        **C4 Level 1 — System Context**
+
+        High-level view showing all actors, external systems, and the Banking System.
+        The Banking System is a full-stack event-driven banking application deployed on Kubernetes on AWS EC2.
+        '''
+    link https://github.com/dungxnd-banking-demo/banking-demo-revamp
+
+    include
+      customer,
+      operator,
+      github,
+      ghcr,
+      duckdns,
+      banking,
+      infraRepo
+
+    // Top-level relationships only
+    include customer -> banking
+    include duckdns -> banking
+    include infraRepo -> banking
+
+    style banking {
+      color bank-green
+    }
+    style infraRepo {
+      color bank-indigo
+    }
+  }
+
+  // ── 2. Banking System — Container View (C4 Level 2) ──
+  view banking-system of banking {
+    title 'Banking System — Containers'
+    description '''
+        **C4 Level 2 — Container View**
+
+        All containers (deployable units) inside the Banking System.
+        Requests flow: Customer → Caddy → Frontend / Kong → api-producer → NATS → consumer services → PostgreSQL / Redis.
+        '''
+
+    include *
+
+    autoLayout LeftRight 120 100
+
+    style caddy {
+      color bank-green
+    }
+    style kong {
+      color bank-indigo
+    }
+    style producer {
+      color primary
+    }
+    style nats {
+      color sky
+    }
+    style jets {
+      color bank-amber
+    }
+    style auth, account, transfer, notify {
+      color amber
+    }
+    style postgres {
+      color secondary
+    }
+    style redis {
+      color red
+    }
+
+    group 'Entry Layer' {
+      include caddy, frontend
+    }
+    group 'API Gateway' {
+      include kong, producer
+    }
+    group 'Message Bus' {
+      include nats, jets
+    }
+    group 'Consumer Services' {
+      include auth, account, transfer, notify
+    }
+    group 'Data Layer' {
+      include postgres, redis
+    }
+  }
+
+  // ── 3. API Request Flow ──
+  view api-request-flow of banking {
+    title 'API Request Flow'
+    description '''
+        **How a REST API request flows through the system.**
+
+        1. Browser → Caddy (HTTPS, TLS termination)
+        2. Caddy → Kong (ClusterIP)
+        3. Kong → api-producer (HTTP)
+        4. api-producer → NATS RPC → consumer service
+        5. Response flows back via NATS inbox → api-producer → Kong → Caddy → Browser
+        '''
+    link https://github.com/dungxnd-banking-demo/banking-demo-revamp/blob/main/ARCH-NATS-RPC.md
+
+    include
+      customer,
+      caddy,
+      kong,
+      producer,
+      nats,
+      auth,
+      account,
+      transfer,
+      notify
+
+    style caddy {
+      color bank-green
+    }
+    style kong {
+      color bank-indigo
+    }
+    style producer {
+      color primary
+    }
+    style nats {
+      color sky
+    }
+  }
+
+  // ── 4. NATS Subject Hierarchy ──
+  view nats-subjects of banking {
+    title 'NATS Subject Hierarchy'
+    description '''
+        **NATS subjects used for request/reply (Core NATS) and events (JetStream).**
+
+        Each consumer service registers as a nats/micro service with per-action endpoints.
+        Auth headers (x-session, x-admin-secret) travel as NATS message headers.
+        '''
+
+    include nats, auth, account, transfer, notify, jets
+
+    style nats {
+      color sky
+    }
+    style jets {
+      color bank-amber
+    }
+  }
+
+  // ── 5. Transfer Flow — CQRS Detail ──
+  view transfer-flow of banking {
+    title 'Transfer Flow — CQRS'
+    description '''
+        **How a money transfer works with CQRS.**
+
+        **Tier 1 (DB):** Atomic PostgreSQL transaction — debit, credit, insert transfers + notifications.
+        **Tier 2 (Redis cache):** Post-commit pipeline — DEL user_cache, HSET balance, PUBLISH notify.
+        **Tier 3 (JetStream):** Publish banking.events.transfer.completed with Nats-Msg-Id dedup.
+        '''
+    link https://github.com/dungxnd-banking-demo/banking-demo-revamp/blob/main/MICROSERVICES.md
+
+    include
+      customer,
+      transfer,
+      nats,
+      jets,
+      account,
+      postgres,
+      redis,
+      notify
+
+    style transfer {
+      color amber
+    }
+    style jets {
+      color bank-amber
+    }
+    style postgres {
+      color secondary
+    }
+    style redis {
+      color red
+    }
+    style account {
+      color primary
+    }
+    style notify {
+      color sky
+    }
+
+    group 'Tier 1 — DB Transaction' {
+      include transfer, postgres
+    }
+    group 'Tier 2 — Redis Cache Pipeline' {
+      include redis
+    }
+    group 'Tier 3 — JetStream Event Log' {
+      include jets, account
+    }
+    group 'Real-time Notification' {
+      include notify, customer
+    }
+  }
+
+  // ── 6. Data Layer ──
+  view data-layer of banking {
+    title 'Data Layer'
+    description '''
+        **PostgreSQL schema and Redis key space.**
+
+        PostgreSQL: users, transfers, notifications tables.
+        Redis: session:{sid} (24h), user_cache:phone (5min), balance hash, notify:{uid} pub/sub.
+        '''
+
+    include auth, account, transfer, notify, postgres, redis
+
+    style postgres {
+      color secondary
+    }
+    style redis {
+      color red
+    }
+  }
+
+  // ── 7. Observability Stack ──
+  view observability-stack of banking {
+    title 'Observability Stack'
+    description '''
+        **Three pillars: structured JSON logs, Prometheus metrics, OpenTelemetry distributed tracing.**
+
+        Every service emits structured JSON logs to stdout and exposes /metrics.
+        OTLP/gRPC spans flow to self-hosted OTel Collector or Instana agent.
+        '''
+
+    include
+      auth,
+      account,
+      transfer,
+      notify,
+      producer,
+      nats,
+      monitoring,
+      instana
+
+    style monitoring {
+      color bank-green
+    }
+    style instana {
+      color bank-indigo
+    }
+
+    group 'Signals emitted' {
+      include auth, account, transfer, notify, producer, nats
+    }
+    group 'Backends' {
+      include monitoring, instana
+    }
+  }
+
+  // ── 8. GitOps CI/CD Pipeline ──
+  view gitops-pipeline of banking {
+    title 'GitOps CI/CD Pipeline'
+    description '''
+        **Three repos, one pipeline.**
+
+        1. banking-demo-revamp: Source code + CI (build & push to GHCR)
+        2. CI bumps image tags in banking-demo-gitops/helm/values.yaml
+        3. ArgoCD detects the diff and auto-syncs the cluster
+        4. bankind-demo-infra: Provisioned the EC2 VMs + K8s + ArgoCD
+        '''
+
+    include ci, argocd
+
+    style ci {
+      color amber
+    }
+    style argocd {
+      color bank-green
+    }
+  }
+
+  // ── 9. Redis Key Space & CQRS ──
+  view redis-keyspace of banking {
+    title 'Redis Key Space & CQRS'
+    description '''
+        **How Redis keys are used for CQRS.**
+
+        - session:{sid} → session token → user ID lookup
+        - user_cache:phone → login fast-path (DEL\'d on transfer)
+        - balance hash → CQRS read model (HSET by transfer, read by account)
+        - notify:{uid} pub/sub → real-time transfer events
+        '''
+    include redis, auth, account, transfer, notify
+
+    style redis {
+      color red
+    }
+  }
+}
