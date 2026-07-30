@@ -85,10 +85,7 @@ Backend services communicate over NATS RPC. PostgreSQL and Redis are StatefulSet
 
     autoLayout LeftRight 120 100
 
-    global style theme_banking
-
-    style caddy { color bank_green }
-
+    // Groups first — elements belong to their first group
     group 'Ingress' {
       color bank_green
       opacity 25%
@@ -126,8 +123,9 @@ Backend services communicate over NATS RPC. PostgreSQL and Redis are StatefulSet
       include postgres, redis
     }
 
-    // Include relationships between all visible elements
-    include * -> *
+    // Styles applied after grouping
+    global style theme_banking
+    style caddy { color bank_green }
   }
 
   // ═══════════════════════════════════════════════════

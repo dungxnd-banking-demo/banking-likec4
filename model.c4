@@ -23,11 +23,13 @@ model {
   duckdns = externalSystem 'DuckDNS' {
     technology 'Dynamic DNS'
     description 'Systemd service on master node: polls public IP via IMDSv2, updates A-record. Enables Let\'s Encrypt TLS without static IP.'
+    style { icon https://www.duckdns.org/img/ducky_icon_small.png }
   }
 
   instana = externalSystem 'Instana' {
     technology 'APM · OTel Backend'
     description 'Production observability. Host agent on :4317 collects OTLP/gRPC traces. Go Collector instruments pgxpool + go-redis.'
+    style { icon https://avatars.githubusercontent.com/u/5128994?s=200&v=4 }
   }
 
   infra_repo = externalSystem 'bankind-demo-infra' {

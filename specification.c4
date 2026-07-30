@@ -6,7 +6,7 @@ specification {
   }
   element person {
     description 'Human interacting with the system.'
-    style { shape person }
+    style { shape person; icon bootstrap:person }
   }
   element system {
     description 'A software system — the highest level of abstraction.'
@@ -21,12 +21,13 @@ specification {
     #stateless
     notation 'Edge Proxy'
     description 'Reverse proxy — TLS termination, routing, hostPort binding.'
+    style { icon tech:nginx }
   }
   element webapp {
     #stateless
     notation 'SPA'
     description 'Browser-based single-page application.'
-    style { shape browser }
+    style { shape browser; icon tech:react }
   }
   element apigateway {
     #stateless
@@ -158,17 +159,14 @@ specification {
   deploymentNode cloud {
     notation 'Cloud'
     description 'Public cloud provider region.'
-    style { color bank_indigo }
   }
   deploymentNode region {
     notation 'Region'
     description 'Geographic region within a cloud provider.'
-    style { color bank_indigo }
   }
   deploymentNode vpc {
     notation 'VPC'
     description 'Virtual Private Cloud — isolated network with public subnet.'
-    style { color bank_indigo }
   }
   deploymentNode ec2 {
     notation 'EC2'
