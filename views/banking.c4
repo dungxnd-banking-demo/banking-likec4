@@ -15,43 +15,48 @@ Backend services communicate over NATS RPC. PostgreSQL + Redis StatefulSets with
     autoLayout LeftRight 120 100
 
     group 'Ingress' {
-      color bank_green;
-      opacity 25%;
+      color bank_green
+      opacity 25%
       border dashed
       include k8s_platform.caddy
     }
     group 'Gateway + Web' {
-      color bank_indigo;
-      opacity 20%;
+      color bank_indigo
+      opacity 20%
       border dashed
       include banking.kong, banking.frontend
     }
     group 'Bridge' {
-      color primary;
-      opacity 20%;
+      color primary
+      opacity 20%
       border dashed
       include banking.producer
     }
     group 'Message Bus' {
-      color sky;
-      opacity 20%;
+      color sky
+      opacity 20%
       border dashed
       include banking.nats, banking.jets
     }
     group 'Consumers (Go)' {
-      color amber;
-      opacity 15%;
+      color amber
+      opacity 15%
       border dashed
       include banking.auth, banking.account, banking.transfer, banking.notify
     }
     group 'Data' {
-      color secondary;
-      opacity 20%;
+      color secondary
+      opacity 20%
       border dashed
       include banking.postgres, banking.redis
     }
 
-    global style theme_banking
+    style k8s_platform.caddy { color bank_green }
+    style banking.kong { color bank_indigo }
+    style banking.nats, banking.jets { color sky }
+    style banking.auth, banking.account, banking.transfer, banking.notify { color amber }
+    style banking.postgres { color secondary }
+    style banking.redis { color red }
 
     rank same { k8s_platform.caddy }
     rank same { banking.kong }
@@ -59,8 +64,6 @@ Backend services communicate over NATS RPC. PostgreSQL + Redis StatefulSets with
     rank same { banking.nats, banking.jets }
     rank same { banking.auth, banking.account, banking.transfer, banking.notify }
     rank same { banking.postgres, banking.redis }
-
-    style k8s_platform.caddy { color bank_green }
   }
 
 }
