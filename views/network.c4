@@ -1,0 +1,123 @@
+views 'Security' {
+
+  // ═══════════════════════════════════════════════════
+  //  Network Isolation — Before Lockdown
+  // ═══════════════════════════════════════════════════
+  view network_before_lockdown {
+    title 'Security / Network Isolation — Before Lockdown (Provisioning)'
+    description '''
+**SG Phase 1 — Provisioning mode.** `lockdown_enabled = false`.
+
+External access:
+- SSH:22 → all 4 nodes (admin CIDR)
+- kube-api:6443 → master node (admin CIDR)
+- 80/443/2222 → master node (0.0.0.0/0)
+
+Operator can SSH directly to any node. K8s API reachable from admin CIDR.
+Cilium eBPF mesh: all node-to-node traffic unrestricted (self-ref SG rule).
+'''
+
+    group 'External Access (open)' {
+      color bank_green
+      opacity 25%
+      border dashed
+      include k8s_platform.sg
+    }
+    group 'Edge Entry' {
+      color sky
+      opacity 20%
+      border dashed
+      include k8s_platform.caddy
+    }
+    group 'Management' {
+      color amber
+      opacity 20%
+      border dashed
+      include k8s_platform.warpgate, k8s_platform.control_plane
+    }
+
+    include
+      customer,
+      operator
+
+    include customer -> k8s_platform.caddy
+    include operator -> k8s_platform.caddy
+    include operator -> k8s_platform.control_plane
+    include operator -> k8s_platform.warpgate
+
+    autoLayout LeftRight 150 100
+
+    style k8s_platform.sg { color bank_green }
+    style k8s_platform.caddy { color sky }
+    style k8s_platform.warpgate { color bank_red }
+    style k8s_platform.control_plane { color primary }
+    style customer { color sky }
+    style operator { color amber }
+  }
+
+  // ═══════════════════════════════════════════════════
+  //  Network Isolation — After Lockdown
+  // ═══════════════════════════════════════════════════
+  view network_after_lockdown {
+    title 'Security / Network Isolation — After Lockdown (Operational)'
+    description '''
+**SG Phase 2 — Lockdown mode.** `lockdown_enabled = true`.
+
+External access (only 3 ports from anywhere):
+- 80/443 → Caddy (hostPort, master node)
+- 2222 → Warpgate SSH proxy (hostPort, warpgate node)
+
+BLOCKED:
+- SSH:22 to ALL nodes
+- kube-api:6443 to master
+
+Warpgate is the sole management entry point. Caddy is the sole app entry.
+Cilium eBPF mesh: node-to-node traffic still unrestricted internally.
+NetworkPolicies: default-deny + 7 allow-lists for pod-level isolation.
+'''
+
+    group 'External Access (restricted)' {
+      color bank_red
+      opacity 25%
+      border dashed
+      include k8s_platform.sg
+    }
+    group 'Public Entry (sole)' {
+      color sky
+      opacity 20%
+      border dashed
+      include k8s_platform.caddy
+    }
+    group 'Management Path (sole)' {
+      color amber
+      opacity 20%
+      border dashed
+      include k8s_platform.warpgate
+    }
+    group 'BLOCKED' {
+      color muted
+      opacity 15%
+      border dashed
+      include k8s_platform.control_plane, k8s_platform.netpol
+    }
+
+    include
+      customer,
+      operator
+
+    include customer -> k8s_platform.caddy
+    include customer -> k8s_platform.warpgate
+    include operator -> k8s_platform.warpgate
+
+    autoLayout LeftRight 150 100
+
+    style k8s_platform.sg { color bank_red }
+    style k8s_platform.caddy { color sky }
+    style k8s_platform.warpgate { color bank_red }
+    style k8s_platform.control_plane { color muted; opacity 40% }
+    style k8s_platform.netpol { color muted; opacity 40% }
+    style customer { color sky }
+    style operator { color amber }
+  }
+
+}
