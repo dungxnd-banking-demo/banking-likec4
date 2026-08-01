@@ -26,7 +26,10 @@ No NetworkPolicy enforcement yet. Cilium eBPF mesh: all node-to-node open.
     }
 
     include
-      k8s_platform.sg
+      k8s_platform.sg,
+      k8s_platform.control_plane,
+      k8s_platform.caddy,
+      k8s_platform.warpgate
 
     include
       customer -> k8s_platform.caddy with {
@@ -83,7 +86,9 @@ Cilium eBPF mesh: node-to-node internal traffic still unrestricted.
     include
       k8s_platform.sg,
       k8s_platform.netpol,
-      k8s_platform.control_plane
+      k8s_platform.control_plane,
+      k8s_platform.caddy,
+      k8s_platform.warpgate
 
     include
       customer -> k8s_platform.caddy with {
