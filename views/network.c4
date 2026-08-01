@@ -85,6 +85,9 @@ Cilium eBPF mesh: node-to-node internal traffic still unrestricted.
         title 'ssh -p 2222 (sole path)'
       }
 
+    exclude operator -> k8s_platform.control_plane
+    exclude operator -> k8s_platform.caddy
+
     autoLayout LeftRight 150 100
 
     style k8s_platform.sg { color bank_red }
