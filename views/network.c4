@@ -18,9 +18,14 @@ Customer reachable ports (0.0.0.0/0):
 No NetworkPolicy enforcement yet. Cilium eBPF mesh: all node-to-node open.
 '''
 
+    group 'External Actors' {
+      color sky
+      opacity 20%
+      border dashed
+      include customer, operator
+    }
+
     include
-      customer,
-      operator,
       k8s_platform.sg
 
     include
@@ -68,9 +73,14 @@ Warpgate is the sole management path. NetworkPolicies: default-deny + 7 allow-li
 Cilium eBPF mesh: node-to-node internal traffic still unrestricted.
 '''
 
+    group 'External Actors' {
+      color sky
+      opacity 20%
+      border dashed
+      include customer, operator
+    }
+
     include
-      customer,
-      operator,
       k8s_platform.sg,
       k8s_platform.netpol,
       k8s_platform.control_plane
