@@ -8,6 +8,18 @@ model {
   customer -[https]-> k8s_platform.caddy 'opens app'
   duckdns -> k8s_platform.caddy 'A-record→public IP'
 
+  // ── Provisioning phase (before lockdown) ──
+  // SSH:22 open to master + warpgate nodes, kube-api:6443 exposed
+  operator -> k8s_platform.caddy 'SSH:22' {
+    #provisioning
+  }
+  operator -> k8s_platform.control_plane 'kube-api:6443' {
+    #provisioning
+  }
+  operator -> k8s_platform.warpgate 'SSH:22' {
+    #provisioning
+  }
+
   // ── Platform → App routing ──
   k8s_platform.caddy -[https]-> banking.kong 'all routes'
 

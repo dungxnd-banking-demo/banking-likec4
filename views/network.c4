@@ -6,44 +6,40 @@ views 'Security' {
   view network_before_lockdown {
     title 'Security / Network Isolation — Before Lockdown (Provisioning)'
     description '''
-**SG Phase 1 — Provisioning mode.** `lockdown_enabled = false`.
+**SG Phase 1** — `lockdown_enabled = false`.
 
-External access:
-- SSH:22 → all 4 nodes (admin CIDR)
-- kube-api:6443 → master node (admin CIDR)
-- 80/443/2222 → master node (0.0.0.0/0)
+Operator reachable ports (admin CIDR):
+- SSH:22 → master + warpgate
+- kube-api:6443 → master
 
-Operator can SSH directly to any node. K8s API reachable from admin CIDR.
-Cilium eBPF mesh: all node-to-node traffic unrestricted (self-ref SG rule).
+Customer reachable ports (0.0.0.0/0):
+- 80, 443, 2222 → Caddy (hostPort)
+
+No NetworkPolicy enforcement yet. Cilium eBPF mesh: all node-to-node open.
 '''
-
-    group 'External Access (open)' {
-      color bank_green
-      opacity 25%
-      border dashed
-      include k8s_platform.sg
-    }
-    group 'Edge Entry' {
-      color sky
-      opacity 20%
-      border dashed
-      include k8s_platform.caddy
-    }
-    group 'Management' {
-      color amber
-      opacity 20%
-      border dashed
-      include k8s_platform.warpgate, k8s_platform.control_plane
-    }
 
     include
       customer,
-      operator
+      operator,
+      k8s_platform.sg
 
-    include customer -> k8s_platform.caddy
-    include operator -> k8s_platform.caddy
-    include operator -> k8s_platform.control_plane
-    include operator -> k8s_platform.warpgate
+    include
+      customer -> k8s_platform.caddy with {
+        title 'HTTPS:443 + HTTP:80'
+      }
+
+    include
+      operator -> k8s_platform.caddy with {
+        title 'SSH:22 (admin CIDR)'
+      }
+    include
+      operator -> k8s_platform.control_plane with {
+        title 'kube-api:6443'
+      }
+    include
+      operator -> k8s_platform.warpgate with {
+        title 'SSH:22 (admin CIDR)'
+      }
 
     autoLayout LeftRight 150 100
 
@@ -61,61 +57,41 @@ Cilium eBPF mesh: all node-to-node traffic unrestricted (self-ref SG rule).
   view network_after_lockdown {
     title 'Security / Network Isolation — After Lockdown (Operational)'
     description '''
-**SG Phase 2 — Lockdown mode.** `lockdown_enabled = true`.
+**SG Phase 2** — `lockdown_enabled = true`.
 
-External access (only 3 ports from anywhere):
-- 80/443 → Caddy (hostPort, master node)
-- 2222 → Warpgate SSH proxy (hostPort, warpgate node)
+Only 3 ports open from anywhere:
+- 80/443 → Caddy (app traffic)
+- 2222 → Warpgate SSH proxy
 
-BLOCKED:
-- SSH:22 to ALL nodes
-- kube-api:6443 to master
-
-Warpgate is the sole management entry point. Caddy is the sole app entry.
-Cilium eBPF mesh: node-to-node traffic still unrestricted internally.
-NetworkPolicies: default-deny + 7 allow-lists for pod-level isolation.
+SSH:22 and kube-api:6443 — BLOCKED to all nodes.
+Warpgate is the sole management path. NetworkPolicies: default-deny + 7 allow-lists.
+Cilium eBPF mesh: node-to-node internal traffic still unrestricted.
 '''
-
-    group 'External Access (restricted)' {
-      color bank_red
-      opacity 25%
-      border dashed
-      include k8s_platform.sg
-    }
-    group 'Public Entry (sole)' {
-      color sky
-      opacity 20%
-      border dashed
-      include k8s_platform.caddy
-    }
-    group 'Management Path (sole)' {
-      color amber
-      opacity 20%
-      border dashed
-      include k8s_platform.warpgate
-    }
-    group 'BLOCKED' {
-      color muted
-      opacity 15%
-      border dashed
-      include k8s_platform.control_plane, k8s_platform.netpol
-    }
 
     include
       customer,
-      operator
+      operator,
+      k8s_platform.sg,
+      k8s_platform.netpol,
+      k8s_platform.control_plane
 
-    include customer -> k8s_platform.caddy
-    include customer -> k8s_platform.warpgate
-    include operator -> k8s_platform.warpgate
+    include
+      customer -> k8s_platform.caddy with {
+        title 'HTTPS:443 + HTTP:80'
+      }
+
+    include
+      operator -> k8s_platform.warpgate with {
+        title 'ssh -p 2222 (sole path)'
+      }
 
     autoLayout LeftRight 150 100
 
     style k8s_platform.sg { color bank_red }
     style k8s_platform.caddy { color sky }
     style k8s_platform.warpgate { color bank_red }
-    style k8s_platform.control_plane { color muted; opacity 40% }
     style k8s_platform.netpol { color muted; opacity 40% }
+    style k8s_platform.control_plane { color muted; opacity 40% }
     style customer { color sky }
     style operator { color amber }
   }
